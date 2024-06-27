@@ -1,0 +1,93 @@
+{
+  "name": "vscode-flutter-unused",
+  "displayName": "flutter unused",
+  "description": "Find unused dart files, dependencies and assets in your flutter project",
+  "version": "1.0.0",
+  "author": "mingrenjbdt",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Linters",
+    "Formatters"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flutter-unused.findUnusedList",
+        "title": "Flutter: Find Unused"
+      },
+      {
+        "command": "flutter-unused.deleteResource",
+        "title": "Delete Resource",
+        "icon": "media/del.svg"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "when": "(view == flutter-unused-files || view == flutter-unused-dependencies || view == flutter-unused-files)",
+          "command": "flutter-unused.deleteResource",
+          "group": "inline"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flutter-unused-explorer1",
+          "title": "flutter unused",
+          "icon": "media/dep.svg",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "views": {
+      "flutter-unused-explorer1": [
+        {
+          "id": "flutter-unused-files",
+          "name": "Unreferenced dart files"
+        },
+        {
+          "id": "flutter-unused-dependencies",
+          "name": "Unreferenced dependencies"
+        },
+        {
+          "id": "flutter-unused-assets",
+          "name": "Unreferenced assets"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "flutter-unused-files",
+        "contents": "[Search Unused](command:flutter-unused.findUnusedList)"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "pnpm run compile && pnpm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.11.0",
+    "@typescript-eslint/parser": "^7.11.0",
+    "@vscode/test-cli": "^0.0.9",
+    "@vscode/test-electron": "^2.4.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.0"
+  }
+}
