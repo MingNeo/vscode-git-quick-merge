@@ -1,278 +1,403 @@
-import path from 'path'
-import * as fs from 'fs'
-import * as jsyaml from 'js-yaml'
-import * as vscode from 'vscode'
+import vscode from "vscode";
+import path from "path";
+import fs from "fs";
+import { execSync } from "child_process";
+import {
+  getCurrentBranchName,
+  getWorktreesBaseDir,
+  checkStaleWorktrees,
+  cleanupStaleWorktrees,
+  getWorkspacePath,
+  getRemoteRepoName,
+  getCurrentCommitId,
+  checkUnpushedCommits,
+  pushCurrentBranch
+} from "./utils";
 
-export function activate(context: vscode.ExtensionContext) {
-  console.log('"flutter-unused" is now active!')
+interface WorktreeConfig {
+  repoPath: string;
+  worktreePath: string;
+  targetBranch: string;
+  sourceBranch: string;
+}
 
-  const terminal = vscode.window.createTerminal('flutter-unused')
+/**
+ * 生成worktree配置
+ */
+function createWorktreeConfig(repoPath: string, targetBranch: string, sourceBranch: string): WorktreeConfig {
+  const timestamp = Date.now().toString().slice(-6);
+  const safeBranchName = targetBranch.replace(/[^a-zA-Z0-9]/g, '-');
+  const worktreeName = `merge-${safeBranchName}-${timestamp}`;
+  const worktreePath = path.join(getWorktreesBaseDir(), worktreeName);
 
-  const findUnusedListDisposable = vscode.commands.registerCommand('flutter-unused.findUnusedList', () => {
-    // loading message
-    vscode.window.showInformationMessage('Finding unreferenced resources...')
-    const rootPath =
-      vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-        ? vscode.workspace.workspaceFolders[0]?.uri.fsPath
-        : undefined
-    if (!rootPath) {
-      vscode.window.showErrorMessage('No workspace is open.')
-      return
-    }
-    const libPath = path.join(rootPath, 'lib')
+  return {
+    repoPath,
+    worktreePath,
+    targetBranch,
+    sourceBranch
+  };
+}
 
-    vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Window,
-        cancellable: false,
-        title: 'Finding unreferenced resources ...',
-      },
-      async (progress) => {
-        progress.report({ increment: 0 })
+/**
+ * 统一错误处理
+ */
+function handleError(error: unknown, context: string): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`${context}: ${message}`);
+}
 
-        const [unreferencedAssets, unreferencedDependencies, unreferencedDartFiles] = await Promise.all([
-          findUnreferencedAssets(),
-          findUnreferencedDependencies(libPath),
-          findUnreferencedDartFiles(),
-        ])
+/**
+ * 执行worktree工作流
+ */
+function executeWorkTreeFlow(config: WorktreeConfig): void {
+  vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "处理分支合并",
+      cancellable: false,
+    },
+    async (progress) => {
+      const { repoPath, worktreePath, targetBranch, sourceBranch } = config;
 
-        displayResults(unreferencedAssets, unreferencedDependencies, unreferencedDartFiles)
+      try {
+        progress.report({ message: "检查历史残留的 worktrees..." });
+        await checkAndPromptStaleWorktrees();
 
-        progress.report({ increment: 100 })
-      },
-    )
-  })
+        progress.report({ message: "创建临时工作区..." });
+        await createWorktree(repoPath, worktreePath, targetBranch);
 
-  const deleteResourceDisposable = vscode.commands.registerCommand('flutter-unused.deleteResource', (resource: Resource) => {
-    vscode.window.showWarningMessage(`Are you sure you want to delete ${resource.name}?`, { modal: true }, 'Delete').then((selection) => {
-      if (selection === 'Delete') {
-        if (resource.type === 'dependency') {
-          // 删除依赖项
-          const pubspecPath = path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, 'pubspec.yaml')
-          try {
-            // 读取pubspec.yaml文件内容
-            let data = fs.readFileSync(pubspecPath, 'utf8')
-            let lines = data.split('\n')
-            // 遍历文件的每一行，寻找依赖项
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].includes(resource.name)) {
-                lines.splice(i, 1) // 删除依赖项所在的行
-                break
-              }
-            }
-            // 将更新后的内容写回文件
-            fs.writeFileSync(pubspecPath, lines.join('\n'))
+        // progress.report({ message: "检查远程分支..." });
+        // const [isRemoteTargetBranchExists, isRemoteSourceBranchExists] = await Promise.all([
+        //   checkRemoteBranchExists(worktreePath, targetBranch),
+        //   checkRemoteBranchExists(worktreePath, sourceBranch)
+        // ]);
 
-            // 运行flutter pub get
-            terminal.sendText('flutter pub get')
-            vscode.window.showInformationMessage('Dependency deleted successfully.')
-          } catch (err) {
-            console.error(err)
-            vscode.window.showErrorMessage('Failed to delete dependency.')
-          }
+        // if (!isRemoteTargetBranchExists) {
+        //   throw new Error(`远程目标分支 ${targetBranch} 不存在，请先创建目标分支`);
+        // }
+
+        // if (!isRemoteSourceBranchExists) {
+        //   throw new Error(`远程源分支 ${sourceBranch} 不存在，请先推送源分支到远程仓库`);
+        // }
+
+        progress.report({ message: "切换到目标分支..." });
+        await switchToTargetBranch(worktreePath, targetBranch);
+
+        progress.report({ message: "拉取最新代码..." });
+        await pullLatestCode(worktreePath, targetBranch);
+
+        // 获取合并前的 commit id
+        const beforeMergeCommitId = getCurrentCommitId(worktreePath);
+
+        progress.report({ message: "合并分支..." });
+        await mergeBranch(worktreePath, sourceBranch, targetBranch);
+
+        // 获取合并后的 commit id
+        const afterMergeCommitId = getCurrentCommitId(worktreePath);
+
+        // 检查是否有新的提交
+        const hasNewCommits = beforeMergeCommitId !== afterMergeCommitId;
+
+        progress.report({ message: "推送到远程..." });
+        await pushToRemote(worktreePath, targetBranch);
+
+        await cleanupWorktree(config);
+
+        // 根据是否有新提交显示不同的消息
+        if (hasNewCommits) {
+          vscode.window.showInformationMessage(
+            `✅ 分支合并成功: ${sourceBranch} → ${targetBranch}`
+          );
         } else {
-          fs.unlinkSync(resource.path)
+          vscode.window.showWarningMessage(
+            `⚠️ 合并完成，但没有新的提交: ${sourceBranch} → ${targetBranch}\n` +
+            `请检查源分支是否未推送到远程仓库`
+          );
         }
-        // 删除后更新视图
-        vscode.commands.executeCommand('flutter-unused.findUnusedList')
+
+        // 询问是否触发部署
+        // await askForDeployment();
+
+        progress.report({ message: "合并流程完成" });
+      } catch (error) {
+        await cleanupWorktree(config);
+        vscode.window.showErrorMessage(
+          `❌ 分支合并失败 ${sourceBranch} → ${targetBranch}: ${handleError(error, '合并过程').message}`
+        );
       }
+    }
+  );
+}
+
+/**
+ * 创建worktree
+ */
+async function createWorktree(repoPath: string, worktreePath: string, targetBranch: string): Promise<void> {
+  try {
+    const parentDir = path.dirname(worktreePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    execSync(`git worktree add "${worktreePath}" "${targetBranch}"`, {
+      cwd: repoPath,
+      stdio: "pipe"
+    });
+  } catch (error) {
+    throw handleError(error, '创建工作区失败，请检查分支是否存在');
+  }
+}
+
+/**
+ * 切换到目标分支
+ */
+async function switchToTargetBranch(worktreePath: string, targetBranch: string): Promise<void> {
+  try {
+    execSync(`git switch "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+  } catch (error) {
+    throw handleError(error, '切换到目标分支失败，请检查分支是否存在');
+  }
+}
+
+/**
+ * 拉取最新代码
+ */
+async function pullLatestCode(worktreePath: string, targetBranch: string): Promise<void> {
+  try {
+    const remoteRepo = getRemoteRepoName();
+    execSync(`git pull ${remoteRepo} "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+  } catch (error) {
+    throw handleError(error, `拉取${targetBranch}代码失败`);
+  }
+}
+
+/**
+ * 合并分支
+ */
+async function mergeBranch(worktreePath: string, sourceBranch: string, targetBranch: string): Promise<void> {
+  try {
+    const remoteRepo = getRemoteRepoName();
+    execSync(`git merge "${remoteRepo}/${sourceBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+  } catch (error) {
+    throw handleError(error, '合并分支失败，可能存在代码冲突，请自行手工合并');
+  }
+}
+
+/**
+ * 推送到远程
+ */
+async function pushToRemote(worktreePath: string, targetBranch: string): Promise<void> {
+  try {
+    const remoteRepo = getRemoteRepoName();
+    execSync(`git push ${remoteRepo} "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+  } catch (error) {
+    throw handleError(error, '推送失败，请检查权限和网络');
+  }
+}
+
+/**
+ * 清理worktree
+ */
+async function cleanupWorktree(config: WorktreeConfig): Promise<void> {
+  const { repoPath, worktreePath } = config;
+
+  try {
+    if (fs.existsSync(worktreePath)) {
+      const worktreeName = path.basename(worktreePath);
+      execSync(`git worktree remove "${worktreeName}" --force`, {
+        cwd: repoPath,
+        stdio: "pipe"
+      });
+      fs.rmSync(worktreePath, { recursive: true, force: true });
+    }
+  } catch (error) {
+    console.warn('清理worktree失败:', error);
+  }
+}
+
+/**
+ * 检查远程分支是否存在
+ */
+async function checkRemoteBranchExists(workspacePath: string, branchName: string): Promise<boolean> {
+  try {
+    const remoteRepo = getRemoteRepoName();
+    const result = execSync(`git ls-remote --heads ${remoteRepo} "${branchName}"`, {
+      cwd: workspacePath,
+      encoding: 'utf8'
+    });
+    return !!result.trim();
+  } catch (error) {
+    return false;
+  }
+}
+
+
+
+/**
+ * 检查并处理未推送的提交
+ */
+async function checkAndHandleUnpushedCommits(repoPath: string, branchName: string): Promise<boolean> {
+  const { hasUnpushed, commitCount, commits } = checkUnpushedCommits(repoPath, branchName);
+  
+  if (!hasUnpushed) {
+    return true; // 没有未推送的提交，可以继续
+  }
+
+  // 构建提示消息
+  const commitList = commits.length > 0 
+    ? `\n\n最近的提交:\n${commits.map(commit => `• ${commit}`).join('\n')}${commitCount > 5 ? `\n... 还有 ${commitCount - 5} 个提交` : ''}`
+    : '';
+    
+  const message = `当前分支 "${branchName}" 有 ${commitCount} 个未推送的提交。${commitList}\n\n建议先推送到远程仓库再进行合并，以确保合并操作基于最新的远程状态。`;
+
+  const PUSH_AND_CONTINUE = "推送并继续合并";
+  const CONTINUE_WITHOUT_PUSH = "不推送，直接合并";
+  const CANCEL = "取消操作";
+
+  const choice = await vscode.window.showWarningMessage(
+    message,
+    { modal: true },
+    PUSH_AND_CONTINUE,
+    CONTINUE_WITHOUT_PUSH,
+    CANCEL
+  );
+
+  switch (choice) {
+    case PUSH_AND_CONTINUE:
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `推送分支 "${branchName}"`,
+            cancellable: false,
+          },
+          async (progress) => {
+            progress.report({ 
+              increment: 0, 
+              message: "准备推送到远程仓库..." 
+            });
+            
+            await new Promise(resolve => setTimeout(resolve, 200)); // 短暂延迟以显示进度
+            
+            progress.report({ 
+              increment: 30, 
+              message: "正在连接远程仓库..." 
+            });
+            
+            await pushCurrentBranch(repoPath, branchName);
+            
+            progress.report({ 
+              increment: 70, 
+              message: "推送完成，更新远程分支..." 
+            });
+            
+            await new Promise(resolve => setTimeout(resolve, 300)); // 短暂延迟以显示完成状态
+          }
+        );
+        
+        // vscode.window.showInformationMessage(`✅ 分支 "${branchName}" 推送成功`);
+        return true;
+      } catch (error) {
+        vscode.window.showErrorMessage(`❌ 推送失败: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+      
+    case CONTINUE_WITHOUT_PUSH:
+      // vscode.window.showWarningMessage(`⚠️ 将在有未推送提交的情况下继续合并`);
+      return true;
+      
+    case CANCEL:
+    default:
+      return false;
+  }
+}
+
+/**
+ * 执行合并流程
+ */
+async function executeFlow(targetBranch: string): Promise<void> {
+  const sourceBranch = getCurrentBranchName();
+  const workspacePath = getWorkspacePath();
+
+  if (!sourceBranch || !workspacePath) {
+    vscode.window.showErrorMessage("无法获取必要的分支或路径信息");
+    return;
+  }
+
+  // 检查未推送的提交
+  const shouldContinue = await checkAndHandleUnpushedCommits(workspacePath, sourceBranch);
+  if (!shouldContinue) {
+    return;
+  }
+
+  const config = createWorktreeConfig(workspacePath, targetBranch, sourceBranch);
+  executeWorkTreeFlow(config);
+}
+
+/**
+ * 检查并提示清理历史残留的 worktrees
+ */
+async function checkAndPromptStaleWorktrees(): Promise<void> {
+  const staleWorktrees = checkStaleWorktrees();
+
+  if (staleWorktrees.length === 0) {
+    return;
+  }
+
+  const workspacePath = getWorkspacePath();
+  await cleanupStaleWorktrees(staleWorktrees, workspacePath);
+}
+
+/**
+ * 主入口函数
+ */
+function manageWorktrees(): void {
+  const config = vscode.workspace.getConfiguration("gitQuickMerge");
+  const branches = new Set(['develop', 'release', 'master', ...(config.get<string[]>("branches") || [])].filter(v => v !== config.get<string>("currentBranch")));
+
+  const CANCEL = "退出操作";
+  vscode.window
+    .showQuickPick([CANCEL, ...branches], {
+      canPickMany: false,
+      placeHolder: "选择要合并到的目标分支",
     })
-  })
-
-  // context.subscriptions.push(openFileDisposable)
-  context.subscriptions.push(deleteResourceDisposable)
-  context.subscriptions.push(findUnusedListDisposable)
-}
-
-// This method is called when your extension is deactivated
-export function deactivate() {}
-
-// Find unreferenced assets
-async function findUnreferencedAssets(): Promise<Resource[]> {
-  const [assetFiles, dartFiles] = await Promise.all([
-    vscode.workspace.findFiles(`assets/**/*`, `assets/fonts/**/*`, 10000),
-    vscode.workspace.findFiles(`lib/**/*.dart`, null, 10000),
-  ])
-
-  const assetNames = assetFiles.map((asset) => path.basename(asset.fsPath))
-
-  const referencedAssets: Set<string> = new Set()
-
-  for (const dartFile of dartFiles) {
-    const dartContent = fs.readFileSync(dartFile.fsPath, 'utf-8')
-    for (const asset of assetNames) {
-      const assetReference = `${asset}`
-      if (dartContent.includes(assetReference)) {
-        referencedAssets.add(asset)
+    .then((targetBranch) => {
+      if (!targetBranch || targetBranch === CANCEL) {
+        return;
       }
-    }
-  }
-
-  const unreferencedAssets: Resource[] = []
-  for (const asset of assetFiles) {
-    const assetName = path.basename(asset.fsPath)
-    if (!referencedAssets.has(assetName)) {
-      unreferencedAssets.push(new Resource(assetName, asset.fsPath))
-    }
-  }
-
-  return unreferencedAssets
+      executeFlow(targetBranch);
+    });
 }
 
-// Find unreferenced Dart files
-async function findUnreferencedDartFiles(): Promise<Resource[]> {
-  const dartFiles = await vscode.workspace.findFiles(`lib/**/*.dart`, null, 10000)
-  const referencedDartFiles: Set<string> = new Set()
+export function activate(context: vscode.ExtensionContext): void {
+  const disposable = vscode.commands.registerCommand(
+    "gitQuickMerge.quick-merge-to",
+    manageWorktrees
+  );
 
-  for (const dartFile of dartFiles) {
-    const dartFileName = path.basename(dartFile.fsPath)
+  context.subscriptions.push(disposable);
 
-    for (const file of dartFiles) {
-      const dartContent = fs.readFileSync(file.fsPath, 'utf-8')
-      if (file.fsPath !== dartFile.fsPath && dartContent.includes(dartFileName)) {
-        referencedDartFiles.add(dartFileName)
-      }
+  // 添加状态栏项
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    10000
+  );
+  statusBarItem.command = "gitQuickMerge.quick-merge-to";
+  statusBarItem.text = "$(git-branch) 快速合并";
+  statusBarItem.tooltip = "合并当前分支到指定分支";
+  statusBarItem.show();
+
+  context.subscriptions.push(statusBarItem);
+
+  // 延迟检查历史残留的 worktrees（避免影响扩展启动速度）
+  setTimeout(async () => {
+    const config = vscode.workspace.getConfiguration("gitQuickMerge");
+    const skipCheck = config.get<boolean>("skipStaleWorktreeCheck", false);
+
+    if (!skipCheck) {
+      await checkAndPromptStaleWorktrees();
     }
-  }
-
-  const unreferencedFiles: Resource[] = []
-  for (const file of dartFiles) {
-    const fileName = path.basename(file.fsPath)
-    if (!referencedDartFiles.has(fileName) && fileName !== 'main.dart') {
-      unreferencedFiles.push(new Resource(fileName, file.fsPath))
-    }
-  }
-
-  return unreferencedFiles
+  }, 2000); // 2秒后检查
 }
 
-// Find unreferenced dependencies
-async function findUnreferencedDependencies(libPath: string): Promise<string[]> {
-  const pubspecPath = path.join(libPath, '..', 'pubspec.yaml')
-  if (!fs.existsSync(pubspecPath)) {
-    return []
-  }
-
-  const pubspecContent = fs.readFileSync(pubspecPath, 'utf-8')
-  const pubspec = jsyaml.load(pubspecContent) as {
-    dependencies: { [key: string]: string }
-  }
-  const dependencies = pubspec.dependencies
-    ? Object.keys(pubspec.dependencies).filter((dep) => dep !== 'flutter' && dep !== 'flutter_test')
-    : []
-
-  const dartFiles = await vscode.workspace.findFiles(`lib/**/*.dart`, null, 10000)
-
-  const referencedDependencies: Set<string> = new Set()
-
-  for (const dartFile of dartFiles) {
-    const dartContent = fs.readFileSync(dartFile.fsPath, 'utf-8')
-    for (const dep of dependencies) {
-      const depReference = `${dep}`
-
-      if (dartContent.includes(depReference)) {
-        referencedDependencies.add(dep)
-      }
-    }
-  }
-
-  return dependencies.filter((dep) => !referencedDependencies.has(dep))
-}
-
-// Display the results in the sidebar
-function displayResults(unreferencedAssets: Resource[], unreferencedDependencies: string[], unreferencedDartFiles: Resource[]) {
-  const assetTreeDataProvider = new UnusedResourcesTreeDataProvider(unreferencedAssets, [], [])
-  const dependencyTreeDataProvider = new UnusedResourcesTreeDataProvider([], unreferencedDependencies, [])
-  const dartFileTreeDataProvider = new UnusedResourcesTreeDataProvider([], [], unreferencedDartFiles)
-
-  vscode.window.createTreeView('flutter-unused-assets', { treeDataProvider: assetTreeDataProvider })
-  vscode.window.createTreeView('flutter-unused-dependencies', { treeDataProvider: dependencyTreeDataProvider })
-  vscode.window.createTreeView('flutter-unused-files', { treeDataProvider: dartFileTreeDataProvider })
-}
-
-class Resource {
-  constructor(public readonly name: string, public readonly path: string, public readonly type?: string) {}
-}
-
-class UnusedResourcesTreeDataProvider implements vscode.TreeDataProvider<Resource> {
-  constructor(private unreferencedAssets: any[], private unreferencedDependencies: string[], private unreferencedDartFiles: any[]) {}
-
-  getTreeItem(element: Resource): vscode.TreeItem {
-    // 检测元素类型：这里假设Resource有一个type属性
-    if (element.type === 'dependency') {
-      // 为依赖项生成特定的命令
-      const line = this.findDependencyLine(element.name) // 假设这个方法能找到依赖项在pubspec.yaml中的行号
-      return {
-        label: element.name,
-        collapsibleState: vscode.TreeItemCollapsibleState.None,
-        command: {
-          command: 'vscode.open',
-          title: 'Open File',
-          arguments: [
-            vscode.Uri.file(path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, 'pubspec.yaml')),
-            { selection: new vscode.Range(line, 0, line, 0) },
-          ],
-        },
-      }
-    } else {
-      // 其他类型元素的处理保持不变
-      return {
-        label: element.name,
-        collapsibleState: vscode.TreeItemCollapsibleState.None,
-        command: {
-          command: 'vscode.open',
-          title: 'Open File',
-          arguments: [element.path],
-        },
-        contextValue: 'deletable',
-      }
-    }
-  }
-
-  private findDependencyLine(dependencyName: string): number {
-    // 获取pubspec.yaml文件的路径
-    const pubspecPath = path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, 'pubspec.yaml')
-
-    try {
-      // 读取pubspec.yaml文件内容
-      const data = fs.readFileSync(pubspecPath, 'utf8')
-      const lines = data.split('\n')
-
-      // 遍历文件的每一行，寻找依赖项
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(dependencyName)) {
-          return i // 返回依赖项所在的行号
-        }
-      }
-    } catch (err) {
-      console.error(err)
-      return -1 // 文件读取错误或依赖项未找到
-    }
-
-    return -1 // 默认返回值，表示未找到依赖项
-  }
-
-  getChildren(): Thenable<Resource[]> {
-    const results: Resource[] = []
-
-    if (this.unreferencedAssets.length > 0) {
-      results.push(...this.unreferencedAssets)
-    }
-
-    if (this.unreferencedDependencies.length > 0) {
-      this.unreferencedDependencies.forEach((dep) => {
-        results.push(new Resource(dep, '', 'dependency'))
-      })
-    }
-
-    if (this.unreferencedDartFiles.length > 0) {
-      results.push(...this.unreferencedDartFiles)
-    }
-
-    return Promise.resolve(results)
-  }
-
-  getParent(): vscode.ProviderResult<Resource> {
-    return null
-  }
-}
+export function deactivate(): void {}

@@ -1,77 +1,72 @@
 {
-  "name": "vscode-flutter-unused",
-  "displayName": "flutter unused",
-  "description": "Find unused dart files, dependencies and assets in your flutter project",
+  "name": "vscode-git-quick-merge",
+  "displayName": "Git Quick Merge",
+  "description": "快速合并Git分支到指定分支的VSCode插件",
   "version": "1.0.0",
-  "author": "mingrenjbdt",
+  "author": "MingNeo",
+  "publisher": "MingNeo",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Linters",
-    "Formatters"
+    "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
+  "icon": "media/icon.png",
   "contributes": {
     "commands": [
       {
-        "command": "flutter-unused.findUnusedList",
-        "title": "Flutter: Find Unused"
+        "command": "gitQuickMerge.quick-merge-to",
+        "title": "合并分支到指定分支"
       },
       {
-        "command": "flutter-unused.deleteResource",
-        "title": "Delete Resource",
-        "icon": "media/del.svg"
+        "command": "gitQuickMerge.cleanup-stale-worktrees",
+        "title": "清理历史残留的 Worktrees"
       }
     ],
-    "menus": {
-      "view/item/context": [
-        {
-          "when": "(view == flutter-unused-files || view == flutter-unused-dependencies || view == flutter-unused-files)",
-          "command": "flutter-unused.deleteResource",
-          "group": "inline"
-        }
-      ]
-    },
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "flutter-unused-explorer1",
-          "title": "flutter unused",
-          "icon": "media/dep.svg",
-          "visibility": "visible"
-        }
-      ]
-    },
-    "views": {
-      "flutter-unused-explorer1": [
-        {
-          "id": "flutter-unused-files",
-          "name": "Unreferenced dart files"
+    "configuration": {
+      "title": "Git Quick Merge",
+      "properties": {
+        "gitQuickMerge.branches": {
+          "type": "array",
+          "default": [
+            "develop",
+            "master",
+            "main"
+          ],
+          "description": "可选的目标分支列表 - 合并时可以选择的目标分支",
+          "items": {
+            "type": "string",
+            "description": "分支名称"
+          },
+          "uniqueItems": true,
+          "minItems": 1
         },
-        {
-          "id": "flutter-unused-dependencies",
-          "name": "Unreferenced dependencies"
+        "gitQuickMerge.skipStaleWorktreeCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否跳过启动时检查历史残留的 worktree 目录"
         },
-        {
-          "id": "flutter-unused-assets",
-          "name": "Unreferenced assets"
+        "gitQuickMerge.remoteRepoName": {
+          "type": "string",
+          "default": "origin",
+          "description": "远程仓库名称，默认为 origin"
         }
-      ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "flutter-unused-files",
-        "contents": "[Search Unused](command:flutter-unused.findUnusedList)"
       }
-    ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MingNeo/vscode-git-quick-merge"
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run compile",
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "pnpm run compile && pnpm run lint",
+    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "vscode-test"
   },
