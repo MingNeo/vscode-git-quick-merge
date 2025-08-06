@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "author": "MingNeo",
   "publisher": "MingNeo",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },
