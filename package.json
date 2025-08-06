@@ -2,7 +2,7 @@
   "name": "vscode-git-quick-merge",
   "displayName": "Git Quick Merge",
   "description": "快速合并Git分支到指定分支的VSCode插件",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "MingNeo",
   "publisher": "MingNeo",
   "license": "MIT",
