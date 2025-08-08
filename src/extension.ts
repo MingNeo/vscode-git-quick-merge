@@ -351,7 +351,12 @@ async function checkAndPromptStaleWorktrees(): Promise<void> {
 /**
  * 主入口函数
  */
-function manageWorktrees(): void {
+function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
+  // 立即隐藏tooltip
+  if (statusBarItem) {
+    statusBarItem.tooltip = "";
+  }
+
   const config = vscode.workspace.getConfiguration("gitQuickMerge");
   const branches = new Set(['develop', 'release', 'master', ...(config.get<string[]>("branches") || [])].filter(v => v !== config.get<string>("currentBranch")));
 
@@ -362,6 +367,11 @@ function manageWorktrees(): void {
       placeHolder: "选择要合并到的目标分支",
     })
     .then((targetBranch) => {
+      // 恢复tooltip
+      if (statusBarItem) {
+        statusBarItem.tooltip = "合并当前分支到指定分支";
+      }
+      
       if (!targetBranch || targetBranch === CANCEL) {
         return;
       }
@@ -370,13 +380,6 @@ function manageWorktrees(): void {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(
-    "gitQuickMerge.quick-merge-to",
-    manageWorktrees
-  );
-
-  context.subscriptions.push(disposable);
-
   // 添加状态栏项
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -387,6 +390,12 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.tooltip = "合并当前分支到指定分支";
   statusBarItem.show();
 
+  const disposable = vscode.commands.registerCommand(
+    "gitQuickMerge.quick-merge-to",
+    () => manageWorktrees(statusBarItem)
+  );
+
+  context.subscriptions.push(disposable);
   context.subscriptions.push(statusBarItem);
 
   // 延迟检查历史残留的 worktrees（避免影响扩展启动速度）
