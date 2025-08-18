@@ -13,6 +13,7 @@ import {
   checkUnpushedCommits,
   pushCurrentBranch
 } from "./utils";
+import { t } from "./i18n";
 
 interface WorktreeConfig {
   repoPath: string;
@@ -53,17 +54,17 @@ function executeWorkTreeFlow(config: WorktreeConfig): void {
   vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "处理分支合并",
+      title: t('progress.processing'),
       cancellable: false,
     },
     async (progress) => {
       const { repoPath, worktreePath, targetBranch, sourceBranch } = config;
 
       try {
-        progress.report({ message: "检查历史残留的 worktrees..." });
+        progress.report({ message: t('progress.checkingStaleWorktrees') });
         await checkAndPromptStaleWorktrees();
 
-        progress.report({ message: "创建临时工作区..." });
+        progress.report({ message: t('progress.creatingWorktree') });
         await createWorktree(repoPath, worktreePath, targetBranch);
 
         // progress.report({ message: "检查远程分支..." });
@@ -80,16 +81,16 @@ function executeWorkTreeFlow(config: WorktreeConfig): void {
         //   throw new Error(`远程源分支 ${sourceBranch} 不存在，请先推送源分支到远程仓库`);
         // }
 
-        progress.report({ message: "切换到目标分支..." });
+        progress.report({ message: t('progress.switchingBranch') });
         await switchToTargetBranch(worktreePath, targetBranch);
 
-        progress.report({ message: "拉取最新代码..." });
+        progress.report({ message: t('progress.pullingCode') });
         await pullLatestCode(worktreePath, targetBranch);
 
         // 获取合并前的 commit id
         const beforeMergeCommitId = getCurrentCommitId(worktreePath);
 
-        progress.report({ message: "合并分支..." });
+        progress.report({ message: t('progress.mergingBranch') });
         await mergeBranch(worktreePath, sourceBranch, targetBranch);
 
         // 获取合并后的 commit id
@@ -98,7 +99,7 @@ function executeWorkTreeFlow(config: WorktreeConfig): void {
         // 检查是否有新的提交
         const hasNewCommits = beforeMergeCommitId !== afterMergeCommitId;
 
-        progress.report({ message: "推送到远程..." });
+        progress.report({ message: t('progress.pushingToRemote') });
         await pushToRemote(worktreePath, targetBranch);
 
         await cleanupWorktree(config);
@@ -106,23 +107,22 @@ function executeWorkTreeFlow(config: WorktreeConfig): void {
         // 根据是否有新提交显示不同的消息
         if (hasNewCommits) {
           vscode.window.showInformationMessage(
-            `✅ 分支合并成功: ${sourceBranch} → ${targetBranch}`
+            t('success.mergeComplete', sourceBranch, targetBranch)
           );
         } else {
           vscode.window.showWarningMessage(
-            `⚠️ 合并完成，但没有新的提交: ${sourceBranch} → ${targetBranch}\n` +
-            `请检查源分支是否未推送到远程仓库`
+            t('warning.noNewCommits', sourceBranch, targetBranch)
           );
         }
 
         // 询问是否触发部署
         // await askForDeployment();
 
-        progress.report({ message: "合并流程完成" });
+        progress.report({ message: t('progress.mergeComplete') });
       } catch (error) {
         await cleanupWorktree(config);
         vscode.window.showErrorMessage(
-          `❌ 分支合并失败 ${sourceBranch} → ${targetBranch}: ${handleError(error, '合并过程').message}`
+          t('error.mergeFailedGeneral', sourceBranch, targetBranch, handleError(error, '合并过程').message)
         );
       }
     }
@@ -144,7 +144,7 @@ async function createWorktree(repoPath: string, worktreePath: string, targetBran
       stdio: "pipe"
     });
   } catch (error) {
-    throw handleError(error, '创建工作区失败，请检查分支是否存在');
+    throw handleError(error, t('error.createWorktreeFailed'));
   }
 }
 
@@ -155,7 +155,7 @@ async function switchToTargetBranch(worktreePath: string, targetBranch: string):
   try {
     execSync(`git switch "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
   } catch (error) {
-    throw handleError(error, '切换到目标分支失败，请检查分支是否存在');
+    throw handleError(error, t('error.switchBranchFailed'));
   }
 }
 
@@ -167,7 +167,7 @@ async function pullLatestCode(worktreePath: string, targetBranch: string): Promi
     const remoteRepo = getRemoteRepoName();
     execSync(`git pull ${remoteRepo} "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
   } catch (error) {
-    throw handleError(error, `拉取${targetBranch}代码失败`);
+    throw handleError(error, t('error.pullCodeFailed', targetBranch));
   }
 }
 
@@ -179,7 +179,7 @@ async function mergeBranch(worktreePath: string, sourceBranch: string, targetBra
     const remoteRepo = getRemoteRepoName();
     execSync(`git merge "${remoteRepo}/${sourceBranch}"`, { cwd: worktreePath, stdio: "pipe" });
   } catch (error) {
-    throw handleError(error, '合并分支失败，可能存在代码冲突，请自行手工合并');
+    throw handleError(error, t('error.mergeBranchFailed'));
   }
 }
 
@@ -191,7 +191,7 @@ async function pushToRemote(worktreePath: string, targetBranch: string): Promise
     const remoteRepo = getRemoteRepoName();
     execSync(`git push ${remoteRepo} "${targetBranch}"`, { cwd: worktreePath, stdio: "pipe" });
   } catch (error) {
-    throw handleError(error, '推送失败，请检查权限和网络');
+    throw handleError(error, t('error.pushToRemoteFailed'));
   }
 }
 
@@ -211,7 +211,7 @@ async function cleanupWorktree(config: WorktreeConfig): Promise<void> {
       fs.rmSync(worktreePath, { recursive: true, force: true });
     }
   } catch (error) {
-    console.warn('清理worktree失败:', error);
+    console.warn(t('cleanup.warning'), error);
   }
 }
 
@@ -245,14 +245,14 @@ async function checkAndHandleUnpushedCommits(repoPath: string, branchName: strin
 
   // 构建提示消息
   const commitList = commits.length > 0 
-    ? `\n\n最近的提交:\n${commits.map(commit => `• ${commit}`).join('\n')}${commitCount > 5 ? `\n... 还有 ${commitCount - 5} 个提交` : ''}`
+    ? t('commits.recent', commits.map(commit => `• ${commit}`).join('\n'), commitCount > 5 ? t('commits.andMore', (commitCount - 5).toString()) : '')
     : '';
     
-  const message = `当前分支 "${branchName}" 有 ${commitCount} 个未推送的提交。${commitList}\n\n建议先推送到远程仓库再进行合并，以确保合并操作基于最新的远程状态。`;
+  const message = t('warning.unpushedCommits', branchName, commitCount.toString(), commitList);
 
-  const PUSH_AND_CONTINUE = "推送并继续合并";
-  const CONTINUE_WITHOUT_PUSH = "不推送，直接合并";
-  const CANCEL = "取消操作";
+  const PUSH_AND_CONTINUE = t('button.pushAndContinue');
+  const CONTINUE_WITHOUT_PUSH = t('button.continueWithoutPush');
+  const CANCEL = t('button.cancel');
 
   const choice = await vscode.window.showWarningMessage(
     message,
@@ -268,27 +268,27 @@ async function checkAndHandleUnpushedCommits(repoPath: string, branchName: strin
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `推送分支 "${branchName}"`,
+            title: t('progress.pushingBranch', branchName),
             cancellable: false,
           },
           async (progress) => {
             progress.report({ 
               increment: 0, 
-              message: "准备推送到远程仓库..." 
+              message: t('progress.preparingPush')
             });
             
             await new Promise(resolve => setTimeout(resolve, 200)); // 短暂延迟以显示进度
             
             progress.report({ 
               increment: 30, 
-              message: "正在连接远程仓库..." 
+              message: t('progress.connectingRemote')
             });
             
             await pushCurrentBranch(repoPath, branchName);
             
             progress.report({ 
               increment: 70, 
-              message: "推送完成，更新远程分支..." 
+              message: t('progress.pushComplete')
             });
             
             await new Promise(resolve => setTimeout(resolve, 300)); // 短暂延迟以显示完成状态
@@ -298,7 +298,7 @@ async function checkAndHandleUnpushedCommits(repoPath: string, branchName: strin
         // vscode.window.showInformationMessage(`✅ 分支 "${branchName}" 推送成功`);
         return true;
       } catch (error) {
-        vscode.window.showErrorMessage(`❌ 推送失败: ${error instanceof Error ? error.message : String(error)}`);
+        vscode.window.showErrorMessage(t('error.pushFailed', error instanceof Error ? error.message : String(error)));
         return false;
       }
       
@@ -320,7 +320,7 @@ async function executeFlow(targetBranch: string): Promise<void> {
   const workspacePath = getWorkspacePath();
 
   if (!sourceBranch || !workspacePath) {
-    vscode.window.showErrorMessage("无法获取必要的分支或路径信息");
+    vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
     return;
   }
 
@@ -360,17 +360,17 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
   const config = vscode.workspace.getConfiguration("gitQuickMerge");
   const branches = new Set(['develop', 'release', 'master', ...(config.get<string[]>("branches") || [])].filter(v => v !== config.get<string>("currentBranch")));
 
-  const CANCEL = "退出操作";
+  const CANCEL = t('button.exit');
   vscode.window
     .showQuickPick([CANCEL, ...branches], {
       canPickMany: false,
-      placeHolder: "选择要合并到的目标分支",
+      placeHolder: t('prompt.selectTargetBranch'),
     })
     .then((targetBranch) => {
       // 恢复tooltip
-      if (statusBarItem) {
-        statusBarItem.tooltip = "合并当前分支到指定分支";
-      }
+      // if (statusBarItem) {
+      //   statusBarItem.tooltip = "合并当前分支到指定分支";
+      // }
       
       if (!targetBranch || targetBranch === CANCEL) {
         return;
@@ -379,6 +379,48 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
     });
 }
 
+/**
+ * 手动清理历史残留的 worktrees
+ */
+// async function manualCleanupStaleWorktrees(): Promise<void> {
+//   try {
+//     const staleWorktrees = checkStaleWorktrees();
+    
+//     if (staleWorktrees.length === 0) {
+//       vscode.window.showInformationMessage(
+//         t('success.noStaleWorktrees')
+//       );
+//       return;
+//     }
+
+//     const workspacePath = getWorkspacePath();
+//     if (!workspacePath) {
+//       vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
+//       return;
+//     }
+
+//     await vscode.window.withProgress(
+//       {
+//         location: vscode.ProgressLocation.Notification,
+//         title: t('progress.cleanupStaleWorktrees'),
+//         cancellable: false,
+//       },
+//       async (progress) => {
+//         await cleanupStaleWorktrees(staleWorktrees, workspacePath);
+//         progress.report({ message: t('progress.cleanupComplete') });
+//       }
+//     );
+
+//     vscode.window.showInformationMessage(
+//       t('success.cleanupComplete', staleWorktrees.length.toString())
+//     );
+//   } catch (error) {
+//     vscode.window.showErrorMessage(
+//       t('error.cleanupFailed', error instanceof Error ? error.message : String(error))
+//     );
+//   }
+// }
+
 export function activate(context: vscode.ExtensionContext): void {
   // 添加状态栏项
   const statusBarItem = vscode.window.createStatusBarItem(
@@ -386,16 +428,22 @@ export function activate(context: vscode.ExtensionContext): void {
     10000
   );
   statusBarItem.command = "gitQuickMerge.quick-merge-to";
-  statusBarItem.text = "$(git-branch) 快速合并";
-  statusBarItem.tooltip = "合并当前分支到指定分支";
+  statusBarItem.text = "$(git-branch) " + t('statusBar.title');
+  // statusBarItem.tooltip = "合并当前分支到指定分支";
   statusBarItem.show();
 
-  const disposable = vscode.commands.registerCommand(
+  const quickMergeDisposable = vscode.commands.registerCommand(
     "gitQuickMerge.quick-merge-to",
     () => manageWorktrees(statusBarItem)
   );
 
-  context.subscriptions.push(disposable);
+  // const cleanupDisposable = vscode.commands.registerCommand(
+  //   "gitQuickMerge.cleanup-stale-worktrees",
+  //   () => manualCleanupStaleWorktrees()
+  // );
+
+  context.subscriptions.push(quickMergeDisposable);
+  // context.subscriptions.push(cleanupDisposable);
   context.subscriptions.push(statusBarItem);
 
   // 延迟检查历史残留的 worktrees（避免影响扩展启动速度）

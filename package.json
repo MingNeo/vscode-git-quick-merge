@@ -1,8 +1,8 @@
 {
   "name": "vscode-git-quick-merge",
-  "displayName": "Git Quick Merge",
-  "description": "快速合并Git分支到指定分支的VSCode插件",
-  "version": "1.0.2",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "1.0.3",
   "author": "MingNeo",
   "publisher": "MingNeo",
   "license": "MIT",
@@ -21,27 +21,27 @@
     "commands": [
       {
         "command": "gitQuickMerge.quick-merge-to",
-        "title": "合并分支到指定分支"
+        "title": "%command.quickMergeTo.title%"
       },
       {
         "command": "gitQuickMerge.cleanup-stale-worktrees",
-        "title": "清理历史残留的 Worktrees"
+        "title": "%command.cleanupStaleWorktrees.title%"
       }
     ],
     "configuration": {
-      "title": "Git Quick Merge",
+      "title": "%config.title%",
       "properties": {
         "gitQuickMerge.branches": {
           "type": "array",
           "default": [
             "develop",
-            "master",
-            "main"
+            "release",
+            "master"
           ],
-          "description": "可选的目标分支列表 - 合并时可以选择的目标分支",
+          "description": "%config.branches.description%",
           "items": {
             "type": "string",
-            "description": "分支名称"
+            "description": "%config.branches.items.description%"
           },
           "uniqueItems": true,
           "minItems": 1
@@ -49,12 +49,12 @@
         "gitQuickMerge.skipStaleWorktreeCheck": {
           "type": "boolean",
           "default": false,
-          "description": "是否跳过启动时检查历史残留的 worktree 目录"
+          "description": "%config.skipStaleWorktreeCheck.description%"
         },
         "gitQuickMerge.remoteRepoName": {
           "type": "string",
           "default": "origin",
-          "description": "远程仓库名称，默认为 origin"
+          "description": "%config.remoteRepoName.description%"
         }
       }
     }

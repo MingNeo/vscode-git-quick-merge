@@ -1,0 +1,13 @@
+{
+  "displayName": "Git 快速合并",
+  "description": "快速合并Git分支到指定分支的VSCode插件",
+  "config.title": "Git 快速合并",
+  "config.branches.description": "可选的目标分支列表 - 合并时可以选择的目标分支",
+  "config.branches.items.description": "分支名称",
+  "config.skipStaleWorktreeCheck.description": "是否跳过启动时检查历史残留的 worktree 目录",
+  "config.remoteRepoName.description": "远程仓库名称，默认为 origin",
+  "command.quickMergeTo.title": "合并分支到指定分支",
+  "command.cleanupStaleWorktrees.title": "清理历史残留的 Worktrees"
+}
+
+

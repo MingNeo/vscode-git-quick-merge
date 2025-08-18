@@ -1,0 +1,13 @@
+{
+  "displayName": "Git Quick Merge",
+  "description": "A VSCode extension for quickly merging Git branches to specified branches",
+  "config.title": "Git Quick Merge",
+  "config.branches.description": "List of target branches for merging",
+  "config.branches.items.description": "Branch name",
+  "config.skipStaleWorktreeCheck.description": "Skip checking for stale worktree directories on startup",
+  "config.remoteRepoName.description": "Remote repository name, default is origin",
+  "command.quickMergeTo.title": "Merge branch to specified branch",
+  "command.cleanupStaleWorktrees.title": "Cleanup stale worktrees"
+}
+
+
