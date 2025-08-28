@@ -3,27 +3,46 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { execSync } from "child_process";
+import { logger } from "./logger";
 
 /**
  * 获取当前Git分支名
  */
 export function getCurrentBranchName(): string | null {
   try {
+    // 首先尝试使用VSCode Git扩展API
     const gitExtension = vscode.extensions.getExtension("vscode.git")?.exports;
-    if (!gitExtension) {
-      return null;
+    if (gitExtension) {
+      const gitApi = gitExtension.getAPI(1);
+      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+      const repository = gitApi.repositories.find((repo: any) =>
+        repo.rootUri.fsPath === workspacePath
+      );
+
+      const branchName = repository?.state?.HEAD?.name;
+      if (branchName) {
+        logger.debug('通过VSCode Git API获取分支名成功', { branchName });
+        return branchName;
+      }
     }
 
-    const gitApi = gitExtension.getAPI(1);
+    // 备用方案：使用命令行获取分支名
+    logger.debug('VSCode Git API未能获取分支名，尝试命令行方式');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspacePath) {
+      const branchName = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: workspacePath,
+        encoding: 'utf8'
+      }).trim();
+      logger.debug('通过命令行获取分支名成功', { branchName, workspacePath });
+      return branchName;
+    }
 
-    const repository = gitApi.repositories.find((repo: any) =>
-      repo.rootUri.fsPath === workspacePath
-    );
-
-    return repository?.state?.HEAD?.name || null;
+    logger.warn('无法获取工作区路径');
+    return null;
   } catch (error) {
-    console.error('获取当前分支名失败:', error);
+    logger.error('获取当前分支名失败', error);
     return null;
   }
 }
@@ -143,7 +162,7 @@ export function getCurrentCommitId(repoPath: string): string | null {
  */
 export function checkUnpushedCommits(repoPath: string, branchName: string): { hasUnpushed: boolean; commitCount: number; commits: string[] } {
   const remoteRepo = getRemoteRepoName();
-  
+
   try {
     // 首先检查远程分支是否存在
     try {
@@ -158,34 +177,34 @@ export function checkUnpushedCommits(repoPath: string, branchName: string): { ha
         encoding: 'utf8'
       });
       const commitCount = parseInt(localCommitsResult.trim(), 10);
-      
+
       if (commitCount > 0) {
         const commitsResult = execSync(`git log --oneline -n 5 HEAD`, {
           cwd: repoPath,
           encoding: 'utf8'
         });
         const commits = commitsResult.trim().split('\n').filter(line => line.trim());
-        
+
         return {
           hasUnpushed: true,
           commitCount,
           commits
         };
       }
-      
+
       return { hasUnpushed: false, commitCount: 0, commits: [] };
     }
-    
+
     // 检查本地分支相对于远程分支的未推送提交
     const result = execSync(`git log --oneline ${remoteRepo}/${branchName}..HEAD`, {
       cwd: repoPath,
       encoding: 'utf8'
     });
-    
+
     const commits = result.trim().split('\n').filter(line => line.trim());
     const commitCount = commits.length;
     const hasUnpushed = commitCount > 0;
-    
+
     return {
       hasUnpushed,
       commitCount,
@@ -202,7 +221,7 @@ export function checkUnpushedCommits(repoPath: string, branchName: string): { ha
  */
 export async function pushCurrentBranch(repoPath: string, branchName: string): Promise<void> {
   const remoteRepo = getRemoteRepoName();
-  
+
   try {
     // 使用 stdio: 'inherit' 可以看到推送进度，但在这里我们使用 pipe 来捕获错误
     const result = execSync(`git push ${remoteRepo} ${branchName}`, {
@@ -210,13 +229,13 @@ export async function pushCurrentBranch(repoPath: string, branchName: string): P
       stdio: 'pipe',
       encoding: 'utf8'
     });
-    
+
     // 如果推送成功，result 包含推送信息
     console.log('推送结果:', result);
   } catch (error: any) {
     // 提供更详细的错误信息
     const errorMessage = error.stderr || error.message || String(error);
-    
+
     if (errorMessage.includes('Permission denied')) {
       throw new Error('推送失败: 权限被拒绝，请检查 SSH 密钥或访问令牌');
     } else if (errorMessage.includes('Could not resolve hostname')) {

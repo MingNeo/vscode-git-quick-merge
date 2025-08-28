@@ -5,6 +5,7 @@ const zhCnTexts: Record<string, string> = {
   'statusBar.title': '快速合并',
   // 进度提示
   'progress.processing': '处理分支合并',
+  'progress.processingMultiple': '处理多分支合并 ({0}/{1})',
   'progress.checkingStaleWorktrees': '检查历史残留的 worktrees...',
   'progress.creatingWorktree': '创建临时工作区...',
   'progress.switchingBranch': '切换到目标分支...',
@@ -19,6 +20,10 @@ const zhCnTexts: Record<string, string> = {
 
   // 成功消息
   'success.mergeComplete': '✅ 分支合并成功: {0} → {1}',
+  'success.multipleMergeComplete': '✅ 多分支合并完成: {0} → [{1}]',
+  'success.multipleMergePartial': '⚠️ 多分支合并部分成功: {0} → 成功: [{1}], 失败: [{2}]',
+  'success.presetMergeComplete': '✅ 预设合并 "{0}" 完成: {1} → [{2}]',
+  'success.presetMergePartial': '⚠️ 预设合并 "{0}" 部分成功: {1} → 成功: [{2}], 失败: [{3}]',
   'success.pushComplete': '✅ 分支 "{0}" 推送成功',
 
   // 警告消息
@@ -37,7 +42,9 @@ const zhCnTexts: Record<string, string> = {
   'error.pushToRemoteFailed': '推送失败，请检查权限和网络',
 
   // 选择提示
-  'prompt.selectTargetBranch': '选择要合并到的目标分支',
+  'prompt.selectTargetBranch': '选择合并方式',
+  'prompt.selectMultipleTargetBranches': '选择要合并到的多个目标分支（可多选）',
+  'prompt.selectMergePreset': '选择预设的合并组合',
   'prompt.cleanupStaleWorktrees': '清理历史残留的 Worktrees',
 
   // 按钮文本
@@ -64,6 +71,7 @@ const enTexts: Record<string, string> = {
   'statusBar.title': 'Quick Merge',
   // 进度提示
   'progress.processing': 'Processing branch merge',
+  'progress.processingMultiple': 'Processing multiple branch merge ({0}/{1})',
   'progress.checkingStaleWorktrees': 'Checking for stale worktrees...',
   'progress.creatingWorktree': 'Creating temporary worktree...',
   'progress.switchingBranch': 'Switching to target branch...',
@@ -78,6 +86,10 @@ const enTexts: Record<string, string> = {
 
   // 成功消息
   'success.mergeComplete': '✅ Branch merge successful: {0} → {1}',
+  'success.multipleMergeComplete': '✅ Multiple branch merge completed: {0} → [{1}]',
+  'success.multipleMergePartial': '⚠️ Multiple branch merge partially successful: {0} → Success: [{1}], Failed: [{2}]',
+  'success.presetMergeComplete': '✅ Preset merge "{0}" completed: {1} → [{2}]',
+  'success.presetMergePartial': '⚠️ Preset merge "{0}" partially successful: {1} → Success: [{2}], Failed: [{3}]',
   'success.pushComplete': '✅ Branch "{0}" pushed successfully',
 
   // 警告消息
@@ -96,7 +108,9 @@ const enTexts: Record<string, string> = {
   'error.pushToRemoteFailed': 'Push failed, please check permissions and network',
 
   // 选择提示
-  'prompt.selectTargetBranch': 'Select target branch to merge to',
+  'prompt.selectTargetBranch': 'Select merge option',
+  'prompt.selectMultipleTargetBranches': 'Select multiple target branches to merge to (multi-select)',
+  'prompt.selectMergePreset': 'Select merge preset',
   'prompt.cleanupStaleWorktrees': 'Cleanup stale worktrees',
 
   // 按钮文本
@@ -124,14 +138,14 @@ const enTexts: Record<string, string> = {
 export function t(key: string, ...args: string[]): string {
   const locale = vscode.env.language;
   const texts = locale.startsWith('zh') ? zhCnTexts : enTexts;
-  
+
   let text = texts[key] || key;
-  
+
   // 替换占位符 {0}, {1}, {2}, ...
   args.forEach((arg, index) => {
     text = text.replace(new RegExp(`\\{${index}\\}`, 'g'), arg);
   });
-  
+
   return text;
 }
 

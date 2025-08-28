@@ -2,7 +2,7 @@
   "name": "vscode-git-quick-merge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "MingNeo",
   "publisher": "MingNeo",
   "license": "MIT",
@@ -55,6 +55,31 @@
           "type": "string",
           "default": "origin",
           "description": "%config.remoteRepoName.description%"
+        },
+        "gitQuickMerge.mergePresets": {
+          "type": "array",
+          "default": [],
+          "description": "%config.mergePresets.description%",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "%config.mergePresets.items.name.description%"
+              },
+              "branches": {
+                "type": "array",
+                "description": "%config.mergePresets.items.branches.description%",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "minItems": 1
+              }
+            },
+            "required": ["name", "branches"],
+            "additionalProperties": false
+          }
         }
       }
     }

@@ -6,7 +6,10 @@
   "config.branches.items.description": "Branch name",
   "config.skipStaleWorktreeCheck.description": "Skip checking for stale worktree directories on startup",
   "config.remoteRepoName.description": "Remote repository name, default is origin",
-  "command.quickMergeTo.title": "Merge branch to specified branch",
+  "config.mergePresets.description": "Predefined merge presets for one-click multiple branch merging",
+  "config.mergePresets.items.name.description": "Display name for this merge preset",
+  "config.mergePresets.items.branches.description": "List of target branches for this preset",
+  "command.quickMergeTo.title": "Quick Merge",
   "command.cleanupStaleWorktrees.title": "Cleanup stale worktrees"
 }
 
