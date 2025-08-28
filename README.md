@@ -9,6 +9,23 @@ A VSCode extension for quickly merging the current branch to specified branches 
 ![Configuration](./media/config.png)
 
 ![Example](./media/1.png)
+
+### 工作原理 / How It Works
+
+本扩展的合并操作大致等同于以下 Git 命令序列：
+```bash
+git checkout B -> git pull -> git merge A -> git push -> git checkout A
+```
+
+但是使用 `git worktree` 技术实现，**不会对本地分支做任何修改**，确保您的当前工作环境完全不受影响。
+
+This extension's merge operation is roughly equivalent to the following Git command sequence:
+```bash
+git checkout B -> git pull -> git merge A -> git push -> git checkout A
+```
+
+However, it uses `git worktree` technology, ensuring **no modifications are made to your local branches** and your current working environment remains completely unaffected.
+
 ### Features
 
 - **快速分支合并**：无需切换到目标分支，直接将当前分支合并到指定分支
