@@ -17,6 +17,8 @@ const zhCnTexts: Record<string, string> = {
   'progress.preparingPush': '准备推送到远程仓库...',
   'progress.connectingRemote': '正在连接远程仓库...',
   'progress.pushComplete': '推送完成，更新远程分支...',
+  'progress.completed': '已完成',
+  'progress.canceled': '已取消',
 
   // 成功消息
   'success.mergeComplete': '✅ 分支合并成功: {0} → {1}',
@@ -25,14 +27,26 @@ const zhCnTexts: Record<string, string> = {
   'success.presetMergeComplete': '✅ 预设合并 "{0}" 完成: {1} → [{2}]',
   'success.presetMergePartial': '⚠️ 预设合并 "{0}" 部分成功: {1} → 成功: [{2}], 失败: [{3}]',
   'success.pushComplete': '✅ 分支 "{0}" 推送成功',
+  'success.completedBranches': '✅ 已成功合并的分支: {0}',
+  'success.completedBranchesList': '已成功合并的分支',
 
   // 警告消息
   'warning.noNewCommits': '⚠️ 合并完成，但没有新的提交: {0} → {1}\n请检查源分支是否未推送到远程仓库',
   'warning.unpushedCommits': '当前分支 "{0}" 有 {1} 个未推送的提交。{2}\n\n建议先推送到远程仓库再进行合并，以确保合并操作基于最新的远程状态。',
   'warning.continueWithoutPush': '⚠️ 将在有未推送提交的情况下继续合并',
+  'warning.operationsSkipped': '⚠️ 由于出错中断，有 {0} 个操作未执行',
 
   // 错误消息
+  'error.mergeFailed': '❌ 合并失败，已中断操作: {0} → {1}\n错误信息: {2}',
   'error.mergeFailedGeneral': '❌ 分支合并失败 {0} → {1}: {2}',
+  'error.mergeAborted': '❌ 合并到 {0} 时失败，已中断后续操作\n错误: {1}\n\n已完成: {2}/{3} 个操作\n已取消: {4} 个操作',
+  'error.mergeAbortedShort': '❌ 合并到 {0} 时失败，已中断（完成 {1}/{2}，取消 {3} 个），可能存在代码冲突，请自行手工合并',
+  'error.mergeAbortedTitle': '多分支合并已中断',
+  'error.failedAt': '失败位置',
+  'error.errorMessage': '错误信息',
+  'error.unknown': '未知错误',
+  'error.canceledOperations': '已取消的操作: {0}',
+  'error.canceledOperationsList': '已取消的操作',
   'error.pushFailed': '❌ 推送失败: {0}',
   'error.cannotGetBranchInfo': '无法获取必要的分支或路径信息',
   'error.createWorktreeFailed': '创建工作区失败，请检查分支是否存在',
@@ -47,11 +61,17 @@ const zhCnTexts: Record<string, string> = {
   'prompt.selectMergePreset': '选择预设的合并组合',
   'prompt.cleanupStaleWorktrees': '清理历史残留的 Worktrees',
 
+  // 菜单选项
+  'menu.singleMergeLabel': '单分支合并: HEAD({0}) → {1}',
+  'menu.multiMergeLabel': '多分支合并: HEAD({0}) → {1}',
+  'menu.multiMergeDetail': '一键合并到 {0} 个分支',
+
   // 按钮文本
   'button.pushAndContinue': '推送并继续合并',
   'button.continueWithoutPush': '不推送，直接合并',
   'button.cancel': '取消操作',
   'button.exit': '退出操作',
+  'button.viewDetails': '查看详情',
 
   // 清理相关
   'progress.cleanupStaleWorktrees': '清理历史残留的 Worktrees',
@@ -83,6 +103,8 @@ const enTexts: Record<string, string> = {
   'progress.preparingPush': 'Preparing to push to remote repository...',
   'progress.connectingRemote': 'Connecting to remote repository...',
   'progress.pushComplete': 'Push complete, updating remote branch...',
+  'progress.completed': 'Completed',
+  'progress.canceled': 'Canceled',
 
   // 成功消息
   'success.mergeComplete': '✅ Branch merge successful: {0} → {1}',
@@ -91,14 +113,26 @@ const enTexts: Record<string, string> = {
   'success.presetMergeComplete': '✅ Preset merge "{0}" completed: {1} → [{2}]',
   'success.presetMergePartial': '⚠️ Preset merge "{0}" partially successful: {1} → Success: [{2}], Failed: [{3}]',
   'success.pushComplete': '✅ Branch "{0}" pushed successfully',
+  'success.completedBranches': '✅ Successfully merged branches: {0}',
+  'success.completedBranchesList': 'Successfully merged branches',
 
   // 警告消息
   'warning.noNewCommits': '⚠️ Merge completed but no new commits: {0} → {1}\nPlease check if source branch has been pushed to remote repository',
   'warning.unpushedCommits': 'Current branch "{0}" has {1} unpushed commits.{2}\n\nIt is recommended to push to remote repository first before merging to ensure merge operation is based on latest remote state.',
   'warning.continueWithoutPush': '⚠️ Will continue merging with unpushed commits',
+  'warning.operationsSkipped': '⚠️ {0} operation(s) skipped due to error abort',
 
   // 错误消息
+  'error.mergeFailed': '❌ Merge failed, operation aborted: {0} → {1}\nError: {2}',
   'error.mergeFailedGeneral': '❌ Branch merge failed {0} → {1}: {2}',
+  'error.mergeAborted': '❌ Merge to {0} failed, subsequent operations aborted\nError: {1}\n\nCompleted: {2}/{3} operations\nCanceled: {4} operation(s)',
+  'error.mergeAbortedShort': '❌ Merge to {0} failed, aborted (completed {1}/{2}, canceled {3}), there may be code conflicts, please merge manually',
+  'error.mergeAbortedTitle': 'Multi-branch merge aborted',
+  'error.failedAt': 'Failed at',
+  'error.errorMessage': 'Error message',
+  'error.unknown': 'Unknown error',
+  'error.canceledOperations': 'Canceled operations: {0}',
+  'error.canceledOperationsList': 'Canceled operations',
   'error.pushFailed': '❌ Push failed: {0}',
   'error.cannotGetBranchInfo': 'Cannot get necessary branch or path information',
   'error.createWorktreeFailed': 'Failed to create worktree, please check if branch exists',
@@ -113,11 +147,17 @@ const enTexts: Record<string, string> = {
   'prompt.selectMergePreset': 'Select merge preset',
   'prompt.cleanupStaleWorktrees': 'Cleanup stale worktrees',
 
+  // 菜单选项
+  'menu.singleMergeLabel': 'Single branch merge: HEAD({0}) → {1}',
+  'menu.multiMergeLabel': 'Multi branch merge: HEAD({0}) → {1}',
+  'menu.multiMergeDetail': 'Merge to {0} branches in one click',
+
   // 按钮文本
   'button.pushAndContinue': 'Push and continue merge',
   'button.continueWithoutPush': 'Continue without push',
   'button.cancel': 'Cancel operation',
   'button.exit': 'Exit operation',
+  'button.viewDetails': 'View Details',
 
   // 清理相关
   'progress.cleanupStaleWorktrees': 'Cleanup stale worktrees',

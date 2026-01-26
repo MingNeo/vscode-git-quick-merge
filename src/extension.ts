@@ -2,8 +2,13 @@ import vscode from "vscode";
 import { getCurrentBranchName, getWorkspacePath, checkStaleWorktrees, cleanupStaleWorktrees } from "./utils";
 import { t } from "./i18n";
 import { executeFlow } from "./singleMerge";
-import { executePresetMergeFlow, MergePreset } from "./multiMerge";
+import { executePresetMergeFlow, MergePreset, BranchMergeConfig } from "./multiMerge";
 import { logger } from "./logger";
+
+/**
+ * 单分支配置类型
+ */
+type BranchConfig = string | { to: string; from?: string; name?: string };
 
 
 
@@ -35,8 +40,32 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
     return;
   }
 
+  // 辅助函数：标准化单个配置项
+  function normalizeBranchConfig(item: any, currentBranch: string): BranchMergeConfig {
+    if (typeof item === 'string') {
+      return { from: currentBranch, to: item };
+    } else {
+      return item as BranchMergeConfig;
+    }
+  }
+
+  // 辅助函数：将原始配置转换为标准化的 BranchMergeConfig 格式
+  function normalizePresetBranches(branches: any[], currentBranch: string): BranchMergeConfig[] {
+    return branches.map(item => normalizeBranchConfig(item, currentBranch));
+  }
+
   // 获取单分支选项
-  const singleBranches = new Set(['develop', 'release', 'master', ...(config.get<string[]>("branches") || [])].filter(v => v !== currentBranch));
+  const branchConfigs = config.get<BranchConfig[]>("branches") || [];
+  const defaultBranches: BranchConfig[] = ['develop', 'release', 'master'];
+  const allBranchConfigs = [...defaultBranches, ...branchConfigs];
+
+  // 标准化配置并过滤当前分支
+  const normalizedBranches = allBranchConfigs.map(branch => {
+    if (typeof branch === 'string') {
+      return { to: branch, from: currentBranch, name: undefined };
+    }
+    return { to: branch.to, from: branch.from || currentBranch, name: branch.name };
+  }).filter(config => config.to !== currentBranch);
 
   // 获取预设的多分支合并选项
   const mergePresets = config.get<MergePreset[]>("mergePresets") || [];
@@ -44,9 +73,15 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
     if (!preset.name || !preset.branches || preset.branches.length === 0) {
       return false;
     }
-    // 过滤掉当前分支
-    preset.branches = preset.branches.filter(branch => branch !== currentBranch);
-    return preset.branches.length > 0;
+
+    // 标准化配置格式
+    preset.branches = normalizePresetBranches(preset.branches, currentBranch);
+
+    // 检查是否有有效的合并操作（过滤掉目标分支是当前分支的操作）
+    const validBranches = preset.branches.filter(config => config.to !== currentBranch);
+    preset.branches = validBranches;
+
+    return validBranches.length > 0;
   });
 
   // 构建选择项
@@ -54,39 +89,51 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
   const quickPickItems: (vscode.QuickPickItem & {
     type: 'cancel' | 'single' | 'preset';
     targetBranch?: string;
+    sourceBranch?: string;
     preset?: MergePreset;
   })[] = [
       { label: CANCEL, type: 'cancel' }
     ];
 
   // 添加单分支选项
-  if (singleBranches.size > 0) {
+  if (normalizedBranches.length > 0) {
     quickPickItems.push(
-      ...Array.from(singleBranches).map(branch => ({
-        label: branch,
-        description: `单分支合并`,
+      ...normalizedBranches.map(config => ({
+        label: t('menu.singleMergeLabel', config.from, config.to),
+        description: config.name,
         type: 'single' as const,
-        targetBranch: branch
+        targetBranch: config.to,
+        sourceBranch: config.from
       }))
     );
   }
 
   // 添加预设多分支选项
+
   if (validPresets.length > 0) {
     quickPickItems.push(
-      ...validPresets.map(preset => ({
-        label: `多分支合并: ${preset.branches.join(' + ')}`,
-        description: preset.name,
-        detail: `一键合并到 ${preset.branches.length} 个分支`,
-        type: 'preset' as const,
-        preset: preset
-      }))
+      ...validPresets.map(preset => {
+        const branches = preset.branches as BranchMergeConfig[];
+        const branchCount = branches.length;
+        // 将每个合并操作单独一行显示，更清晰
+        const branchDetails = branches.map((config, index) => 
+          `${index + 1}. ${config.from} → ${config.to}`
+        ).join('\n');
+
+        return {
+          label: `$(git-merge) ${preset.name}`,
+          description: t('menu.multiMergeDetail', branchCount.toString()),
+          detail: branchDetails,
+          type: 'preset' as const,
+          preset: preset
+        };
+      })
     );
   }
 
   logger.debug('构建选择项完成', {
     totalItems: quickPickItems.length,
-    singleBranches: Array.from(singleBranches),
+    normalizedBranches: normalizedBranches,
     validPresets: validPresets.map(p => ({ name: p.name, branches: p.branches }))
   });
 
@@ -126,10 +173,14 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
 
       try {
         if (selected.type === 'single' && selected.targetBranch) {
-          executeFlow(selected.targetBranch);
+          executeFlow(selected.targetBranch, selected.sourceBranch);
         } else if (selected.type === 'preset' && selected.preset) {
-          if (selected.preset.branches.length === 1) {
-            executeFlow(selected.preset.branches[0]);
+          const branches = selected.preset.branches as BranchMergeConfig[];
+
+          if (branches.length === 1) {
+            // 只有一个合并操作，直接执行
+            const config = branches[0];
+            executeFlow(config.to, config.from);
           } else {
             executePresetMergeFlow(selected.preset);
           }

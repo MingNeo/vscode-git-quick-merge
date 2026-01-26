@@ -308,20 +308,29 @@ export function executeWorkTreeFlow(config: WorktreeConfig): void {
 /**
  * 执行合并流程
  */
-export async function executeFlow(targetBranch: string): Promise<void> {
-  const sourceBranch = getCurrentBranchName();
+export async function executeFlow(targetBranch: string, sourceBranch?: string): Promise<void> {
+  const currentBranch = getCurrentBranchName();
   const workspacePath = getWorkspacePath();
 
-  if (!sourceBranch || !workspacePath) {
+  if (!workspacePath) {
+    vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
+    return;
+  }
+
+  // 如果未指定源分支，使用当前分支
+  const actualSourceBranch = sourceBranch || currentBranch;
+  
+  if (!actualSourceBranch) {
     vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
     return;
   }
 
   // 检查未推送的提交
-  const shouldContinue = await checkAndHandleUnpushedCommits(workspacePath, sourceBranch);
+  const shouldContinue = await checkAndHandleUnpushedCommits(workspacePath, actualSourceBranch);
   if (!shouldContinue) {
     return;
   }
-  const config = createWorktreeConfig(workspacePath, targetBranch, sourceBranch);
+  
+  const config = createWorktreeConfig(workspacePath, targetBranch, actualSourceBranch);
   executeWorkTreeFlow(config);
 }

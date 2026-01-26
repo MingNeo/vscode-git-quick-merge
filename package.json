@@ -2,7 +2,7 @@
   "name": "vscode-git-quick-merge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "MingNeo",
   "publisher": "MingNeo",
   "license": "MIT",
@@ -38,10 +38,30 @@
             "release",
             "master"
           ],
+          "scope": "resource",
           "description": "%config.branches.description%",
           "items": {
-            "type": "string",
-            "description": "%config.branches.items.description%"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "%config.branches.items.description%"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "to": {
+                    "type": "string",
+                    "description": "%config.branches.items.to.description%"
+                  },
+                  "from": {
+                    "type": "string",
+                    "description": "%config.branches.items.from.description%"
+                  }
+                },
+                "required": ["to"],
+                "additionalProperties": false
+              }
+            ]
           },
           "uniqueItems": true,
           "minItems": 1
@@ -49,16 +69,19 @@
         "gitQuickMerge.skipStaleWorktreeCheck": {
           "type": "boolean",
           "default": false,
+          "scope": "resource",
           "description": "%config.skipStaleWorktreeCheck.description%"
         },
         "gitQuickMerge.remoteRepoName": {
           "type": "string",
           "default": "origin",
+          "scope": "resource",
           "description": "%config.remoteRepoName.description%"
         },
         "gitQuickMerge.mergePresets": {
           "type": "array",
           "default": [],
+          "scope": "resource",
           "description": "%config.mergePresets.description%",
           "items": {
             "type": "object",
@@ -71,7 +94,27 @@
                 "type": "array",
                 "description": "%config.mergePresets.items.branches.description%",
                 "items": {
-                  "type": "string"
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "description": "Target branch name (merge from current branch)"
+                    },
+                    {
+                      "type": "object",
+                      "description": "Merge configuration with custom source branch",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "description": "Source branch name"
+                        },
+                        "to": {
+                          "type": "string",
+                          "description": "Target branch name"
+                        }
+                      },
+                      "required": ["from", "to"]
+                    }
+                  ]
                 },
                 "uniqueItems": true,
                 "minItems": 1
@@ -80,6 +123,12 @@
             "required": ["name", "branches"],
             "additionalProperties": false
           }
+        },
+        "gitQuickMerge.continueOnError": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "%config.continueOnError.description%"
         }
       }
     }
@@ -89,6 +138,7 @@
     "url": "https://github.com/MingNeo/vscode-git-quick-merge"
   },
   "scripts": {
+    "build": "pnpx @vscode/vsce package",
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
