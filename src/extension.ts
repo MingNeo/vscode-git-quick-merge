@@ -54,13 +54,11 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
     return branches.map(item => normalizeBranchConfig(item, currentBranch));
   }
 
-  // 获取单分支选项
+  // 获取单分支选项（package.json 中已定义默认值，无需再添加）
   const branchConfigs = config.get<BranchConfig[]>("branches") || [];
-  const defaultBranches: BranchConfig[] = ['develop', 'release', 'master'];
-  const allBranchConfigs = [...defaultBranches, ...branchConfigs];
 
   // 标准化配置并过滤当前分支
-  const normalizedBranches = allBranchConfigs.map(branch => {
+  const normalizedBranches = branchConfigs.map(branch => {
     if (typeof branch === 'string') {
       return { to: branch, from: currentBranch, name: undefined };
     }
