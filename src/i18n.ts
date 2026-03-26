@@ -62,8 +62,8 @@ const zhCnTexts: Record<string, string> = {
   'prompt.cleanupStaleWorktrees': '清理历史残留的 Worktrees',
 
   // 菜单选项
-  'menu.singleMergeLabel': '单分支合并: HEAD({0}) → {1}',
-  'menu.multiMergeLabel': '多分支合并: HEAD({0}) → {1}',
+  'menu.singleMergeLabel': '单分支合并: {0} → {1}',
+  'menu.multiMergeLabel': '多分支合并: {0} → {1}',
   'menu.multiMergeDetail': '一键合并到 {0} 个分支',
 
   // 按钮文本
@@ -148,8 +148,8 @@ const enTexts: Record<string, string> = {
   'prompt.cleanupStaleWorktrees': 'Cleanup stale worktrees',
 
   // 菜单选项
-  'menu.singleMergeLabel': 'Single branch merge: HEAD({0}) → {1}',
-  'menu.multiMergeLabel': 'Multi branch merge: HEAD({0}) → {1}',
+  'menu.singleMergeLabel': 'Single branch merge: {0} → {1}',
+  'menu.multiMergeLabel': 'Multi branch merge: {0} → {1}',
   'menu.multiMergeDetail': 'Merge to {0} branches in one click',
 
   // 按钮文本

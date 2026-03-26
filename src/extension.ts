@@ -96,13 +96,16 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
   // 添加单分支选项
   if (normalizedBranches.length > 0) {
     quickPickItems.push(
-      ...normalizedBranches.map(config => ({
-        label: t('menu.singleMergeLabel', config.from, config.to),
-        description: config.name,
-        type: 'single' as const,
-        targetBranch: config.to,
-        sourceBranch: config.from
-      }))
+      ...normalizedBranches.map(config => {
+        const fromDisplay = config.from === currentBranch ? `HEAD(${config.from})` : config.from;
+        return {
+          label: t('menu.singleMergeLabel', fromDisplay, config.to),
+          description: config.name,
+          type: 'single' as const,
+          targetBranch: config.to,
+          sourceBranch: config.from
+        };
+      })
     );
   }
 

@@ -6,8 +6,6 @@
 
 A VSCode extension for quickly merging the current branch to specified branches without switching branches.
 
-![Configuration](./media/config.png)
-
 ![Example](./media/1.png)
 
 ### 工作原理 / How It Works
@@ -53,6 +51,8 @@ However, it uses `git worktree` technology, ensuring **no modifications are made
     // 1.0.5 新增：对象格式：指定源分支和目标分支，如果全局修改，请确保所有编辑器实例都在 1.0.5 或以上版本
     // 1.0.5 Added: Object format: specify source and target branches，if you modify the global configuration, please ensure that all editor instances are at version 1.0.5 or above
     {
+      // 忽略 from 时，使用当前分支
+      // If from is ignored, use the current branch
       "to": "develop"
     },
     {
