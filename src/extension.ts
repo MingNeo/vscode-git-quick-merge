@@ -1,16 +1,28 @@
 import vscode from "vscode";
 import { getCurrentBranchName, getWorkspacePath, checkStaleWorktrees, cleanupStaleWorktrees } from "./utils";
 import { t } from "./i18n";
-import { executeFlow } from "./singleMerge";
+import { executeFlow, checkAndPromptStaleWorktrees } from "./singleMerge";
 import { executePresetMergeFlow, MergePreset, BranchMergeConfig } from "./multiMerge";
 import { logger } from "./logger";
 
 /**
  * 单分支配置类型
  */
-type BranchConfig = string | { to: string; from?: string; name?: string };
+export type BranchConfig = string | { to: string; from?: string; name?: string };
 
-
+/**
+ * 将单个条目标准化成 BranchMergeConfig（附带可选的显示名）
+ * exported for testing
+ */
+export function normalizeBranchConfig(
+  item: BranchConfig,
+  currentBranch: string
+): BranchMergeConfig & { name?: string } {
+  if (typeof item === "string") {
+    return { to: item, from: currentBranch };
+  }
+  return { to: item.to, from: item.from || currentBranch, name: item.name };
+}
 
 /**
  * 主入口函数
@@ -40,47 +52,25 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
     return;
   }
 
-  // 辅助函数：标准化单个配置项
-  function normalizeBranchConfig(item: any, currentBranch: string): BranchMergeConfig {
-    if (typeof item === 'string') {
-      return { from: currentBranch, to: item };
-    } else {
-      return item as BranchMergeConfig;
-    }
-  }
-
-  // 辅助函数：将原始配置转换为标准化的 BranchMergeConfig 格式
-  function normalizePresetBranches(branches: any[], currentBranch: string): BranchMergeConfig[] {
-    return branches.map(item => normalizeBranchConfig(item, currentBranch));
-  }
-
   // 获取单分支选项（package.json 中已定义默认值，无需再添加）
   const branchConfigs = config.get<BranchConfig[]>("branches") || [];
 
   // 标准化配置并过滤当前分支
-  const normalizedBranches = branchConfigs.map(branch => {
-    if (typeof branch === 'string') {
-      return { to: branch, from: currentBranch, name: undefined };
-    }
-    return { to: branch.to, from: branch.from || currentBranch, name: branch.name };
-  }).filter(config => config.to !== currentBranch);
+  const normalizedBranches = branchConfigs
+    .map(item => normalizeBranchConfig(item, currentBranch))
+    .filter(cfg => cfg.to !== currentBranch);
 
-  // 获取预设的多分支合并选项
-  const mergePresets = config.get<MergePreset[]>("mergePresets") || [];
-  const validPresets = mergePresets.filter(preset => {
-    if (!preset.name || !preset.branches || preset.branches.length === 0) {
-      return false;
-    }
-
-    // 标准化配置格式
-    preset.branches = normalizePresetBranches(preset.branches, currentBranch);
-
-    // 检查是否有有效的合并操作（过滤掉目标分支是当前分支的操作）
-    const validBranches = preset.branches.filter(config => config.to !== currentBranch);
-    preset.branches = validBranches;
-
-    return validBranches.length > 0;
-  });
+  // 获取预设的多分支合并选项（不 mutate 原配置对象）
+  const rawPresets = config.get<MergePreset[]>("mergePresets") || [];
+  const validPresets = rawPresets
+    .filter(preset => preset?.name && preset.branches?.length)
+    .map(preset => ({
+      ...preset,
+      branches: preset.branches
+        .map(item => normalizeBranchConfig(item as BranchConfig, currentBranch))
+        .filter(cfg => cfg.to !== currentBranch), // 过滤掉目标分支是当前分支的操作
+    }))
+    .filter(preset => preset.branches.length > 0);
 
   // 构建选择项
   const CANCEL = t('button.exit');
@@ -96,14 +86,14 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
   // 添加单分支选项
   if (normalizedBranches.length > 0) {
     quickPickItems.push(
-      ...normalizedBranches.map(config => {
-        const fromDisplay = config.from === currentBranch ? `HEAD(${config.from})` : config.from;
+      ...normalizedBranches.map(cfg => {
+        const fromDisplay = cfg.from === currentBranch ? `HEAD(${cfg.from})` : cfg.from;
         return {
-          label: t('menu.singleMergeLabel', fromDisplay, config.to),
-          description: config.name,
+          label: t('menu.singleMergeLabel', fromDisplay, cfg.to),
+          description: cfg.name,
           type: 'single' as const,
-          targetBranch: config.to,
-          sourceBranch: config.from
+          targetBranch: cfg.to,
+          sourceBranch: cfg.from
         };
       })
     );
@@ -117,8 +107,8 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
         const branches = preset.branches as BranchMergeConfig[];
         const branchCount = branches.length;
         // 将每个合并操作单独一行显示，更清晰
-        const branchDetails = branches.map((config, index) => 
-          `${index + 1}. ${config.from} → ${config.to}`
+        const branchDetails = branches.map((cfg, index) =>
+          `${index + 1}. ${cfg.from} → ${cfg.to}`
         ).join('\n');
 
         return {
@@ -180,8 +170,8 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
 
           if (branches.length === 1) {
             // 只有一个合并操作，直接执行
-            const config = branches[0];
-            executeFlow(config.to, config.from);
+            const single = branches[0];
+            executeFlow(single.to, single.from);
           } else {
             executePresetMergeFlow(selected.preset);
           }
@@ -199,17 +189,41 @@ function manageWorktrees(statusBarItem?: vscode.StatusBarItem): void {
 }
 
 /**
- * 检查并提示清理历史残留的 worktrees
+ * 手动触发的清理命令：给用户明确反馈
  */
-async function checkAndPromptStaleWorktrees(): Promise<void> {
-  const staleWorktrees = checkStaleWorktrees();
-
-  if (staleWorktrees.length === 0) {
+async function runCleanupStaleWorktreesCommand(): Promise<void> {
+  const workspacePath = getWorkspacePath();
+  if (!workspacePath) {
+    vscode.window.showErrorMessage(t('error.noWorkspace'));
     return;
   }
 
-  const workspacePath = getWorkspacePath();
-  await cleanupStaleWorktrees(staleWorktrees, workspacePath);
+  const stale = checkStaleWorktrees(workspacePath);
+
+  if (stale.length === 0) {
+    vscode.window.showInformationMessage(t('success.noStaleWorktrees'));
+    return;
+  }
+
+  const yes = t('button.confirm');
+  const confirm = await vscode.window.showWarningMessage(
+    t('prompt.cleanupStaleWorktrees') + ` (${stale.length})`,
+    { modal: true },
+    yes
+  );
+
+  if (confirm !== yes) {
+    return;
+  }
+
+  const result = await cleanupStaleWorktrees(stale, workspacePath);
+  if (result.failed === 0) {
+    vscode.window.showInformationMessage(t('success.cleanupComplete', result.success.toString()));
+  } else {
+    vscode.window.showWarningMessage(
+      t('error.cleanupFailed', `${result.success}/${result.success + result.failed}`)
+    );
+  }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -231,7 +245,13 @@ export function activate(context: vscode.ExtensionContext): void {
     () => manageWorktrees(statusBarItem)
   );
 
+  const cleanupDisposable = vscode.commands.registerCommand(
+    "gitQuickMerge.cleanup-stale-worktrees",
+    () => runCleanupStaleWorktreesCommand()
+  );
+
   context.subscriptions.push(quickMergeDisposable);
+  context.subscriptions.push(cleanupDisposable);
   context.subscriptions.push(statusBarItem);
   context.subscriptions.push(logger); // 确保日志器在扩展停用时被清理
 

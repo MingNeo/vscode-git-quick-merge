@@ -2,7 +2,7 @@
   "name": "vscode-git-quick-merge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "author": "MingNeo",
   "publisher": "MingNeo",
   "license": "MIT",
@@ -56,6 +56,10 @@
                   "from": {
                     "type": "string",
                     "description": "%config.branches.items.from.description%"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "%config.branches.items.name.description%"
                   }
                 },
                 "required": ["to"],
@@ -105,14 +109,19 @@
                       "properties": {
                         "from": {
                           "type": "string",
-                          "description": "Source branch name"
+                          "description": "%config.branches.items.from.description%"
                         },
                         "to": {
                           "type": "string",
-                          "description": "Target branch name"
+                          "description": "%config.branches.items.to.description%"
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "%config.branches.items.name.description%"
                         }
                       },
-                      "required": ["from", "to"]
+                      "required": ["to"],
+                      "additionalProperties": false
                     }
                   ]
                 },
@@ -129,6 +138,13 @@
           "default": false,
           "scope": "resource",
           "description": "%config.continueOnError.description%"
+        },
+        "gitQuickMerge.logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "scope": "resource",
+          "description": "%config.logLevel.description%"
         }
       }
     }

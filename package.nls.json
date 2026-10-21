@@ -6,12 +6,14 @@
   "config.branches.items.description": "Branch name or branch config object",
   "config.branches.items.to.description": "Target branch to merge into",
   "config.branches.items.from.description": "Source branch to merge from (optional, defaults to current branch)",
+  "config.branches.items.name.description": "Optional display label for this merge item (shown in the quick pick)",
   "config.skipStaleWorktreeCheck.description": "Skip checking for stale worktree directories on startup",
   "config.remoteRepoName.description": "Remote repository name, default is origin",
   "config.mergePresets.description": "Predefined merge presets for one-click multiple branch merging",
   "config.mergePresets.items.name.description": "Display name for this merge preset",
   "config.mergePresets.items.branches.description": "List of merge operations. Each item can be a target branch name (string) to merge from current branch, or an object with 'from' and 'to' properties for custom source/target branches",
   "config.continueOnError.description": "When multi-branch merge encounters an error, continue with remaining branches instead of stopping immediately",
+  "config.logLevel.description": "Log level for the \"Git Quick Merge\" output channel (debug | info | warn | error), default info",
   "command.quickMergeTo.title": "Quick Merge",
   "command.cleanupStaleWorktrees.title": "Cleanup stale worktrees"
 }

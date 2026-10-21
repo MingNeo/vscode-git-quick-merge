@@ -6,6 +6,7 @@ import {
   getWorktreesBaseDir,
   checkStaleWorktrees,
   cleanupStaleWorktrees,
+  pruneWorktrees,
   getWorkspacePath,
   getRemoteRepoName,
   getCurrentCommitId,
@@ -14,12 +15,14 @@ import {
   getCurrentBranchName
 } from "./utils";
 import { t } from "./i18n";
+import { logger } from "./logger";
 
 export interface WorktreeConfig {
   repoPath: string;
   worktreePath: string;
   targetBranch: string;
   sourceBranch: string;
+  mergeRef?: 'remote' | 'local';
 }
 
 /**
@@ -91,11 +94,29 @@ export async function pullLatestCode(worktreePath: string, targetBranch: string)
 
 /**
  * 合并分支
+ *
+ * @param mergeRef 'remote' 表示合并 `origin/<source>`（默认，合并前先 fetch 保证远程 ref 最新），'local' 表示合并本地 ref `<source>`
  */
-export async function mergeBranch(worktreePath: string, sourceBranch: string, targetBranch: string): Promise<void> {
+export async function mergeBranch(
+  worktreePath: string,
+  sourceBranch: string,
+  mergeRef: 'remote' | 'local' = 'remote'
+): Promise<void> {
+  const remoteRepo = getRemoteRepoName();
+
+  if (mergeRef === 'remote') {
+    try {
+      execSync(`git fetch ${remoteRepo} "${sourceBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+    } catch (error) {
+      throw handleError(error, t('error.fetchSourceFailed', sourceBranch));
+    }
+  }
+
   try {
-    const remoteRepo = getRemoteRepoName();
-    execSync(`git merge "${remoteRepo}/${sourceBranch}"`, { cwd: worktreePath, stdio: "pipe" });
+    const refToMerge = mergeRef === 'local'
+      ? sourceBranch
+      : `${remoteRepo}/${sourceBranch}`;
+    execSync(`git merge "${refToMerge}"`, { cwd: worktreePath, stdio: "pipe" });
   } catch (error) {
     throw handleError(error, t('error.mergeBranchFailed'));
   }
@@ -120,16 +141,21 @@ export async function cleanupWorktree(config: WorktreeConfig): Promise<void> {
   const { repoPath, worktreePath } = config;
 
   try {
-    if (fs.existsSync(worktreePath)) {
-      const worktreeName = path.basename(worktreePath);
-      execSync(`git worktree remove "${worktreeName}" --force`, {
+    // 不依赖目录是否存在：目录可能已被系统清理，但 git 登记仍在
+    try {
+      execSync(`git worktree remove "${worktreePath}" --force`, {
         cwd: repoPath,
         stdio: "pipe"
       });
+    } catch (error) {
+      logger.warn(t('cleanup.warning'), error);
+    }
+    if (fs.existsSync(worktreePath)) {
       fs.rmSync(worktreePath, { recursive: true, force: true });
     }
+    pruneWorktrees(repoPath);
   } catch (error) {
-    console.warn(t('cleanup.warning'), error);
+    logger.warn(t('cleanup.warning'), error);
   }
 }
 
@@ -149,14 +175,25 @@ export async function checkRemoteBranchExists(workspacePath: string, branchName:
   }
 }
 
+export type UnpushedDecision = 'remote' | 'local' | 'cancel' | 'pushFailed';
+
 /**
  * 检查并处理未推送的提交
+ *
+ * 返回用户的合并决策：
+ * - 'remote'     → 合并远程 ref（默认、历史行为；若用户选择"推送并继续"会先 push）
+ * - 'local'      → 合并本地 ref（包含未推送提交）
+ * - 'cancel'     → 用户主动取消（点取消 / Esc）
+ * - 'pushFailed' → 用户选了"推送并继续"但 push 失败（错误已经通过 showErrorMessage 弹出）
  */
-export async function checkAndHandleUnpushedCommits(repoPath: string, branchName: string): Promise<boolean> {
+export async function checkAndHandleUnpushedCommits(
+  repoPath: string,
+  branchName: string
+): Promise<UnpushedDecision> {
   const { hasUnpushed, commitCount, commits } = checkUnpushedCommits(repoPath, branchName);
 
   if (!hasUnpushed) {
-    return true; // 没有未推送的提交，可以继续
+    return 'remote';
   }
 
   // 构建提示消息
@@ -167,76 +204,60 @@ export async function checkAndHandleUnpushedCommits(repoPath: string, branchName
   const message = t('warning.unpushedCommits', branchName, commitCount.toString(), commitList);
 
   const PUSH_AND_CONTINUE = t('button.pushAndContinue');
-  const CONTINUE_WITHOUT_PUSH = t('button.continueWithoutPush');
-  const CANCEL = t('button.cancel');
+  const MERGE_LOCAL = t('button.mergeLocalLatest');
 
+  // 注意：modal 对话框会自动提供"取消"按钮（点取消或按 Esc 时 choice 为 undefined）
+  // 所以这里不手动传 CANCEL，否则会出现两个取消按钮
   const choice = await vscode.window.showWarningMessage(
     message,
     { modal: true },
     PUSH_AND_CONTINUE,
-    CONTINUE_WITHOUT_PUSH,
-    CANCEL
+    MERGE_LOCAL
   );
 
-  switch (choice) {
-    case PUSH_AND_CONTINUE:
-      try {
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: t('progress.pushingBranch', branchName),
-            cancellable: false,
-          },
-          async (progress) => {
-            progress.report({
-              increment: 0,
-              message: t('progress.preparingPush')
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 200)); // 短暂延迟以显示进度
-
-            progress.report({
-              increment: 30,
-              message: t('progress.connectingRemote')
-            });
-
-            await pushCurrentBranch(repoPath, branchName);
-
-            progress.report({
-              increment: 70,
-              message: t('progress.pushComplete')
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 300)); // 短暂延迟以显示完成状态
-          }
-        );
-
-        return true;
-      } catch (error) {
-        vscode.window.showErrorMessage(t('error.pushFailed', error instanceof Error ? error.message : String(error)));
-        return false;
-      }
-
-    case CONTINUE_WITHOUT_PUSH:
-      return true;
-
-    case CANCEL:
-    default:
-      return false;
+  if (choice === PUSH_AND_CONTINUE) {
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: t('progress.pushingBranch', branchName),
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ increment: 0, message: t('progress.preparingPush') });
+          await new Promise(resolve => setTimeout(resolve, 200));
+          progress.report({ increment: 30, message: t('progress.connectingRemote') });
+          await pushCurrentBranch(repoPath, branchName);
+          progress.report({ increment: 70, message: t('progress.pushComplete') });
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      );
+      return 'remote';
+    } catch (error) {
+      vscode.window.showErrorMessage(t('error.pushFailed', error instanceof Error ? error.message : String(error)));
+      return 'pushFailed';
+    }
   }
+
+  if (choice === MERGE_LOCAL) {
+    return 'local';
+  }
+
+  // undefined（点取消或按 Esc）
+  return 'cancel';
 }
 
 /**
  * 检查并提示清理历史残留的 worktrees
  */
 export async function checkAndPromptStaleWorktrees(): Promise<void> {
-  const staleWorktrees = checkStaleWorktrees();
+  const workspacePath = getWorkspacePath();
+  const staleWorktrees = checkStaleWorktrees(workspacePath);
 
   if (staleWorktrees.length === 0) {
     return;
   }
 
-  const workspacePath = getWorkspacePath();
   await cleanupStaleWorktrees(staleWorktrees, workspacePath);
 }
 
@@ -251,7 +272,7 @@ export function executeWorkTreeFlow(config: WorktreeConfig): void {
       cancellable: false,
     },
     async (progress) => {
-      const { repoPath, worktreePath, targetBranch, sourceBranch } = config;
+      const { repoPath, worktreePath, targetBranch, sourceBranch, mergeRef = 'remote' } = config;
 
       try {
         progress.report({ message: t('progress.checkingStaleWorktrees') });
@@ -270,7 +291,7 @@ export function executeWorkTreeFlow(config: WorktreeConfig): void {
         const beforeMergeCommitId = getCurrentCommitId(worktreePath);
 
         progress.report({ message: t('progress.mergingBranch') });
-        await mergeBranch(worktreePath, sourceBranch, targetBranch);
+        await mergeBranch(worktreePath, sourceBranch, mergeRef);
 
         // 获取合并后的 commit id
         const afterMergeCommitId = getCurrentCommitId(worktreePath);
@@ -313,24 +334,28 @@ export async function executeFlow(targetBranch: string, sourceBranch?: string): 
   const workspacePath = getWorkspacePath();
 
   if (!workspacePath) {
-    vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
+    vscode.window.showErrorMessage(t('error.noWorkspace'));
     return;
   }
 
   // 如果未指定源分支，使用当前分支
   const actualSourceBranch = sourceBranch || currentBranch;
-  
+
   if (!actualSourceBranch) {
     vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
     return;
   }
 
-  // 检查未推送的提交
-  const shouldContinue = await checkAndHandleUnpushedCommits(workspacePath, actualSourceBranch);
-  if (!shouldContinue) {
+  // 检查未推送的提交，并由用户决定合并 local 还是 remote
+  const decision = await checkAndHandleUnpushedCommits(workspacePath, actualSourceBranch);
+  // 用户主动取消 / 推送失败（错误已弹），均直接结束流程
+  if (decision === 'cancel' || decision === 'pushFailed') {
     return;
   }
-  
-  const config = createWorktreeConfig(workspacePath, targetBranch, actualSourceBranch);
+
+  const config: WorktreeConfig = {
+    ...createWorktreeConfig(workspacePath, targetBranch, actualSourceBranch),
+    mergeRef: decision,
+  };
   executeWorkTreeFlow(config);
 }

@@ -11,12 +11,14 @@ A VSCode extension for quickly merging the current branch to specified branches 
 ### 工作原理 / How It Works
 
 本扩展的合并操作大致等同于以下 Git 命令序列：
+
 This extension's merge operation is roughly equivalent to the following Git command sequence:
 ```bash
 git checkout B -> git pull -> git merge A -> git push -> git checkout A
 ```
 
 但是使用 `git worktree` 技术实现，**不会对本地分支做任何修改**，确保您的当前工作环境完全不受影响。
+
 However, it uses `git worktree` technology, ensuring **no modifications are made to your local branches** and your current working environment remains completely unaffected.
 
 ### Features

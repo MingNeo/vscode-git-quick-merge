@@ -6,12 +6,14 @@
   "config.branches.items.description": "分支名称或分支配置对象",
   "config.branches.items.to.description": "要合并到的目标分支",
   "config.branches.items.from.description": "要合并的源分支（可选，默认为当前分支）",
+  "config.branches.items.name.description": "该合并项的显示名称（可选，会显示在快速选择列表中）",
   "config.skipStaleWorktreeCheck.description": "是否跳过启动时检查历史残留的 worktree 目录",
   "config.remoteRepoName.description": "远程仓库名称，默认为 origin",
   "config.mergePresets.description": "预设的合并组合，支持一键多分支合并",
   "config.mergePresets.items.name.description": "此合并预设的显示名称",
   "config.mergePresets.items.branches.description": "合并操作列表。每个项目可以是目标分支名称（字符串，从当前分支合并），或包含'from'和'to'属性的对象（自定义源目标分支）",
   "config.continueOnError.description": "多分支合并时遇到错误是否继续执行剩余分支，而不是立即停止",
+  "config.logLevel.description": "\"Git Quick Merge\" 输出面板的日志级别（debug | info | warn | error），默认 info",
   "command.quickMergeTo.title": "快速合并",
   "command.cleanupStaleWorktrees.title": "清理历史残留的 Worktrees"
 }

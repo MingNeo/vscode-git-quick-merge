@@ -38,18 +38,21 @@ export interface MultipleMergeResult {
   success: boolean;
   error?: string;
   hasNewCommits?: boolean;
+  canceled?: boolean;
 }
 
 /**
  * 执行单个分支的合并流程（用于多分支合并）
  */
-async function executeSingleMergeFlow(targetBranch: string, sourceBranch: string, workspacePath: string): Promise<MultipleMergeResult> {
+async function executeSingleMergeFlow(
+  targetBranch: string,
+  sourceBranch: string,
+  workspacePath: string,
+  mergeRef: 'remote' | 'local' = 'remote'
+): Promise<MultipleMergeResult> {
   const config = createWorktreeConfig(workspacePath, targetBranch, sourceBranch);
 
   try {
-    // 只在第一次合并时检查历史残留的 worktrees
-    // await checkAndPromptStaleWorktrees();
-
     await createWorktree(config.repoPath, config.worktreePath, targetBranch);
     await switchToTargetBranch(config.worktreePath, targetBranch);
     await pullLatestCode(config.worktreePath, targetBranch);
@@ -57,7 +60,7 @@ async function executeSingleMergeFlow(targetBranch: string, sourceBranch: string
     // 获取合并前的 commit id
     const beforeMergeCommitId = getCurrentCommitId(config.worktreePath);
 
-    await mergeBranch(config.worktreePath, sourceBranch, targetBranch);
+    await mergeBranch(config.worktreePath, sourceBranch, mergeRef);
 
     // 获取合并后的 commit id
     const afterMergeCommitId = getCurrentCommitId(config.worktreePath);
@@ -85,95 +88,183 @@ async function executeSingleMergeFlow(targetBranch: string, sourceBranch: string
 }
 
 /**
- * 显示多分支合并结果
+ * 预设合并结果的整体状态
  */
-function showMultipleMergeResults(
-  results: MultipleMergeResult[],
-  totalOperations: number,
-  sourceBranch: string,
-  preset?: MergePreset,
-  targetBranches?: string[],
-  allOperations?: MergeOperation[]
-): void {
-  const successResults = results.filter(r => r.success);
-  const failedResults = results.filter(r => !r.success);
-  const wasAborted = results.length < totalOperations;
+export type OutcomeKind =
+  | 'allSuccess'
+  | 'allFailed'
+  | 'userCanceled'          // 用户主动取消，之前没有失败
+  | 'canceledWithFailures'  // 用户主动取消，之前已有失败（continueOnError = true 时可能出现）
+  | 'abortedByError'
+  | 'partialSuccess';
 
-  if (failedResults.length === 0) {
-    // 全部成功
-    const successBranches = successResults.map(r => r.targetBranch).join(', ');
-    if (preset) {
-      vscode.window.showInformationMessage(
-        t('success.presetMergeComplete', preset.name, sourceBranch, successBranches)
-      );
-    } else {
-      vscode.window.showInformationMessage(
-        t('success.multipleMergeComplete', sourceBranch, successBranches)
-      );
-    }
-  } else if (successResults.length === 0 && !wasAborted) {
-    // 全部失败（第一个就失败了）
-    const failedBranches = failedResults.map(r => `${r.targetBranch}: ${r.error}`).join('\n');
-    const branches = preset ? preset.branches.map(b => b.to).join(', ') : (targetBranches || []).join(', ');
-    vscode.window.showErrorMessage(
-      t('error.mergeFailedGeneral', sourceBranch, branches, failedBranches)
-    );
+export interface ClassifiedResults {
+  canceled: MultipleMergeResult[];
+  failed: MultipleMergeResult[];
+  success: MultipleMergeResult[];
+  /** 因失败而中断：结果数小于总数、至少有一个真正的失败，且不是用户取消 */
+  wasAborted: boolean;
+  /** 用户主动终止（无论之前是否有失败） */
+  wasUserCanceled: boolean;
+  kind: OutcomeKind;
+}
+
+/**
+ * 将结果集按照取消 / 失败 / 成功分类，并判断整体状态。
+ * 抽为独立纯函数便于单测。
+ */
+export function classifyMergeResults(
+  results: MultipleMergeResult[],
+  totalOperations: number
+): ClassifiedResults {
+  const canceled = results.filter(r => r.canceled);
+  const failed = results.filter(r => !r.success && !r.canceled);
+  const success = results.filter(r => r.success);
+  const wasUserCanceled = canceled.length > 0;
+  const wasAborted = !wasUserCanceled && results.length < totalOperations && failed.length > 0;
+
+  let kind: OutcomeKind;
+  if (wasUserCanceled) {
+    kind = failed.length > 0 ? 'canceledWithFailures' : 'userCanceled';
+  } else if (failed.length === 0) {
+    kind = 'allSuccess';
+  } else if (wasAborted) {
+    kind = 'abortedByError';
+  } else if (success.length === 0) {
+    kind = 'allFailed';
   } else {
-    // 部分成功或出错中断
-    const successBranches = successResults.map(r => r.targetBranch).join(', ');
-    const failedBranch = failedResults.length > 0 ? failedResults[0] : null;
-    
-    let message: string;
-    
-    if (wasAborted && failedBranch) {
-      // 出错中断的情况
-      const skippedCount = totalOperations - results.length;
-      const completedCount = successResults.length;
-      
-      // 简洁的主要消息
-      const mainMessage = t('error.mergeAbortedShort', 
-        failedBranch.targetBranch,
-        completedCount.toString(),
-        totalOperations.toString(),
-        skippedCount.toString()
-      );
-      
-      // 详细信息
-      let detailsMessage = `❌ ${t('error.mergeAbortedTitle')}\n\n`;
-      detailsMessage += `${t('error.failedAt')}: ${failedBranch.targetBranch}\n`;
-      detailsMessage += `${t('error.errorMessage')}: ${failedBranch.error || t('error.unknown')}\n\n`;
-      detailsMessage += `${t('progress.completed')}: ${completedCount}/${totalOperations}\n`;
-      detailsMessage += `${t('progress.canceled')}: ${skippedCount}\n`;
-      
-      // 获取被取消的操作列表
-      if (allOperations && allOperations.length > results.length) {
-        const canceledOperations = allOperations.slice(results.length);
-        const canceledList = canceledOperations.map(op => `  • ${op.displayName}`).join('\n');
-        detailsMessage += `\n${t('error.canceledOperationsList')}:\n${canceledList}\n`;
-      }
-      
-      if (completedCount > 0) {
-        detailsMessage += `\n${t('success.completedBranchesList')}:\n  • ${successBranches.split(', ').join('\n  • ')}`;
-      }
-      
-      // 显示简洁消息，带"查看详情"按钮
-      vscode.window.showErrorMessage(mainMessage, t('button.viewDetails')).then(selection => {
-        if (selection === t('button.viewDetails')) {
-          vscode.window.showInformationMessage(detailsMessage, { modal: true });
-        }
-      });
-    } else {
-      // 部分失败但全部执行完的情况（continueOnError = true）
-      const failedBranches = failedResults.map(r => r.targetBranch).join(', ');
-      
-      if (preset) {
-        message = t('success.presetMergePartial', preset.name, sourceBranch, successBranches, failedBranches);
-      } else {
-        message = t('success.multipleMergePartial', sourceBranch, successBranches, failedBranches);
-      }
-      
-      vscode.window.showWarningMessage(message);
+    kind = 'partialSuccess';
+  }
+
+  return { canceled, failed, success, wasAborted, wasUserCanceled, kind };
+}
+
+/**
+ * 把结果按 from → to 格式化成列表项；失败项附带错误信息。
+ * 通过 operations 数组按位置取出对应的 from（results 里只有 targetBranch）。
+ */
+function formatPair(op: MergeOperation): string {
+  return `  • ${op.from} → ${op.to}`;
+}
+
+function formatFailedPair(op: MergeOperation, err?: string): string {
+  return `  • ${op.from} → ${op.to}: ${err ?? t('error.unknown')}`;
+}
+
+/**
+ * 拼装详情弹窗内容，空分组跳过
+ */
+function buildDetails(sections: Array<[string, string[]]>): string {
+  return sections
+    .filter(([, lines]) => lines.length > 0)
+    .map(([title, lines]) => `${title}:\n${lines.join('\n')}`)
+    .join('\n\n');
+}
+
+/**
+ * 普通通知不支持换行，只放一行摘要；完整列表通过"查看详情"在 modal 中展示
+ */
+function showWithDetails(level: 'info' | 'warning' | 'error', summary: string, details: string): void {
+  const VIEW = t('button.viewDetails');
+  const shown = level === 'error'
+    ? vscode.window.showErrorMessage(summary, VIEW)
+    : level === 'warning'
+      ? vscode.window.showWarningMessage(summary, VIEW)
+      : vscode.window.showInformationMessage(summary, VIEW);
+
+  shown.then(selection => {
+    if (selection === VIEW) {
+      vscode.window.showInformationMessage(details, { modal: true });
     }
+  });
+}
+
+/**
+ * 显示预设合并结果
+ *
+ * operations[i] 与 results[i] 一一对应；results.length 可能小于 operations.length，
+ * 此时尾部 operations 即为"未执行"的操作（出错中断或用户取消）。
+ */
+function showPresetMergeResults(
+  results: MultipleMergeResult[],
+  preset: MergePreset,
+  operations: MergeOperation[]
+): void {
+  const totalOperations = operations.length;
+  const { kind } = classifyMergeResults(results, totalOperations);
+
+  const executed = operations.slice(0, results.length).map((op, i) => ({ op, r: results[i] }));
+  const successOps = executed.filter(x => x.r.success).map(x => x.op);
+  const failedPairs = executed.filter(x => !x.r.success && !x.r.canceled);
+  // "未执行"包括两类：用户取消的那一步，以及后面没机会执行的尾部
+  const notRunOps = [
+    ...executed.filter(x => x.r.canceled).map(x => x.op),
+    ...operations.slice(results.length),
+  ];
+
+  const successSection: [string, string[]] = [t('success.completedBranchesList'), successOps.map(formatPair)];
+  const failedSection: [string, string[]] = [
+    t('error.failedOperationsList'),
+    failedPairs.map(({ op, r }) => formatFailedPair(op, r.error)),
+  ];
+  const notRunSection: [string, string[]] = [t('error.canceledOperationsList'), notRunOps.map(formatPair)];
+  const details = buildDetails([successSection, failedSection, notRunSection]);
+
+  switch (kind) {
+    case 'allSuccess':
+      showWithDetails('info', t('success.presetMergeComplete', preset.name, successOps.length.toString()), details);
+      return;
+
+    case 'userCanceled':
+    case 'canceledWithFailures':
+      // 第一步就取消：没有可展示的详情
+      if (executed.length === 1) {
+        vscode.window.showInformationMessage(t('warning.operationsCanceled', notRunOps.length.toString()));
+        return;
+      }
+      showWithDetails(
+        kind === 'canceledWithFailures' ? 'warning' : 'info',
+        t('warning.presetCanceled',
+          preset.name,
+          successOps.length.toString(),
+          failedPairs.length.toString(),
+          notRunOps.length.toString()
+        ),
+        details
+      );
+      return;
+
+    case 'allFailed':
+      showWithDetails('error', t('error.presetAllFailed', preset.name, failedPairs.length.toString()), details);
+      return;
+
+    case 'abortedByError': {
+      const failedFirst = failedPairs[0];
+      const summary = t('error.mergeAbortedShort',
+        failedFirst.op.to,
+        successOps.length.toString(),
+        totalOperations.toString(),
+        notRunOps.length.toString()
+      );
+
+      let abortDetails = `❌ ${t('error.mergeAbortedTitle')}\n\n`;
+      abortDetails += `${t('error.failedAt')}: ${failedFirst.op.from} → ${failedFirst.op.to}\n`;
+      abortDetails += `${t('error.errorMessage')}: ${failedFirst.r.error || t('error.unknown')}\n\n`;
+      abortDetails += `${t('progress.completed')}: ${successOps.length}/${totalOperations}\n`;
+      abortDetails += `${t('progress.canceled')}: ${notRunOps.length}\n\n`;
+      abortDetails += buildDetails([notRunSection, successSection]);
+
+      showWithDetails('error', summary, abortDetails);
+      return;
+    }
+
+    case 'partialSuccess':
+      showWithDetails(
+        'warning',
+        t('success.presetMergePartial', preset.name, successOps.length.toString(), failedPairs.length.toString()),
+        details
+      );
+      return;
   }
 }
 
@@ -214,15 +305,38 @@ async function executeMergeOperationsCore(
           });
 
           // 检查源分支是否有未推送的提交（除非跳过检查）
+          let mergeRef: 'remote' | 'local' = 'remote';
           if (!skipSourceCheck) {
-            const shouldContinue = await checkAndHandleUnpushedCommits(workspacePath, operation.from);
-            if (!shouldContinue) {
-              // 如果用户取消，跳过这个合并操作
+            const decision = await checkAndHandleUnpushedCommits(workspacePath, operation.from);
+            if (decision === 'cancel') {
+              // 用户主动取消：记录为 canceled 并立即终止
+              results.push({
+                targetBranch: operation.to,
+                success: false,
+                canceled: true,
+              });
+              break;
+            }
+            if (decision === 'pushFailed') {
+              // 推送失败属于真实失败（错误已通过 showErrorMessage 弹出），按 failure 处理
+              const failResult: MultipleMergeResult = {
+                targetBranch: operation.to,
+                success: false,
+                error: t('error.pushSourceFailed', operation.from),
+              };
+              results.push(failResult);
+              if (onResult) {
+                onResult(failResult);
+              }
+              if (!continueOnError) {
+                break;
+              }
               continue;
             }
+            mergeRef = decision;
           }
 
-          const result = await executeSingleMergeFlow(operation.to, operation.from, workspacePath);
+          const result = await executeSingleMergeFlow(operation.to, operation.from, workspacePath, mergeRef);
           results.push(result);
 
           // 如果有结果回调，调用它
@@ -243,21 +357,13 @@ async function executeMergeOperationsCore(
 }
 
 /**
- * 执行预设合并流程
+ * 执行预设合并流程（按配置顺序依次执行，每步独立的 worktree 最安全）
  */
 export async function executePresetMergeFlow(preset: MergePreset): Promise<void> {
-  // 按照配置顺序依次执行每个合并操作（最安全的方式）
-  await executePresetMergeSequential(preset);
-}
-
-/**
- * 按照配置顺序依次执行预设合并
- */
-async function executePresetMergeSequential(preset: MergePreset): Promise<void> {
   const workspacePath = getWorkspacePath();
 
   if (!workspacePath) {
-    vscode.window.showErrorMessage(t('error.cannotGetBranchInfo'));
+    vscode.window.showErrorMessage(t('error.noWorkspace'));
     return;
   }
 
@@ -274,6 +380,5 @@ async function executePresetMergeSequential(preset: MergePreset): Promise<void> 
     t('progress.processingMultiple', '0', configs.length.toString()) + ` - ${preset.name}`
   );
 
-  // 显示合并结果
-  showMultipleMergeResults(allResults, operations.length, '', preset, configs.map(c => c.to), operations);
+  showPresetMergeResults(allResults, preset, operations);
 }
