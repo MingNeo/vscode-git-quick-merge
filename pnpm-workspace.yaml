@@ -1,0 +1,3 @@
+# vsce packages by running `npm list --production`, which fails on pnpm's
+# isolated node_modules (missing devDependencies of dependencies).
+nodeLinker: hoisted
